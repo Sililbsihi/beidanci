@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>背诵练习 - 果冻单词</title>
+
+  <!-- 字体（按需，系统字体时省略；只能用 Google 字体，CSS 地址前缀：https://lf-code-agent.coze.cn/obj/x-ai-cn/fonts/google） -->
+  <!-- <link href="https://lf-code-agent.coze.cn/obj/x-ai-cn/fonts/google/google-all-fonts.css" rel="stylesheet"/> -->
+
+  <link href="https://lf-code-agent.coze.cn/obj/x-ai-cn/fonts/google/google-all-fonts.css" rel="stylesheet"/>
+
+  <script src="https://lf-code-agent.coze.cn/obj/x-ai-cn/cdn/jquery/jquery-3.7.1.min.js"></script>
+  <script src="https://lf-code-agent.coze.cn/obj/x-ai-cn/cdn/lucide/lucide-1.11.0.min.js"></script>
+  <script src="https://lf-code-agent.coze.cn/obj/x-ai-cn/cdn/tailwindcss/tailwindcss-browser-4.2.4.min.js"></script>
+
+  <style type="text/tailwindcss">
+    @theme {
+      /* === 品牌色（纸感暖橙强调） === */
+      --color-primary:              #C96F3D;
+      --color-primary-container:    #F6DCC5;
+      --color-on-primary:           #ffffff;
+      /* === 背景 / 表面（暖纸白） === */
+      --color-background:                 #FBF3E7;
+      --color-surface-container-lowest:   #FFFDFA;
+      --color-surface:                    #FFF9F1;
+      --color-surface-container:          #F4EADA;
+      --color-surface-container-high:     #EEE1CE;
+      --color-surface-container-highest:  #E7D6BF;
+      /* === 文字 === */
+      --color-on-surface:           #31251B;
+      --color-on-surface-variant:   #8B7662;
+      /* === 功能色（柔和纸感） === */
+      --color-success:  #7E9F7A;
+      --color-error:    #D96C5F;
+      --color-warning:  #D9A13B;
+      /* === 边框 === */
+      --color-outline:          #D8C6B0;
+      --color-outline-variant:  #EBDFCF;
+      /* === 彩虹果冻色系（柔和彩虹线条与果冻点缀） === */
+      --color-jelly-red:     #E57373;
+      --color-jelly-orange:  #F0A45B;
+      --color-jelly-yellow:  #E9C96A;
+      --color-jelly-green:   #7E9F7A;
+      --color-jelly-blue:    #7FA3C9;
+      --color-jelly-purple:  #A88BC9;
+      /* === 圆角（果冻圆润） === */
+      --radius-sm:   0.5rem;
+      --radius-md:   0.75rem;
+      --radius-lg:   1rem;
+      --radius-xl:   1.25rem;
+      --radius-2xl:  1.75rem;
+      --radius-full: 9999px;
+      /* === 阴影（轻柔暖调） === */
+      --shadow-card:   0 2px 12px rgba(139,118,98,0.10);
+      --shadow-float:  0 10px 30px rgba(139,118,98,0.16);
+      --shadow-dialog: 0 25px 50px rgba(139,118,98,0.20);
+      /* === 字体 === */
+      --font-sans: "Lora", "Noto Serif SC", Georgia, system-ui, serif;
+      --font-display: Georgia, "Noto Serif SC", serif;
+    }
+  </style>
+
+  <!-- 果冻抖动动画：拼写错误时卡片弹性晃动示意（由页尾脚本 jellyShake 触发） -->
+  <style>
+    @keyframes jelly-shake {
+      0%   { transform: rotate(1deg) scale(1); }
+      20%  { transform: rotate(-2.5deg) scale(1.015); }
+      40%  { transform: rotate(2deg) scale(1.01); }
+      60%  { transform: rotate(-1.5deg) scale(1.02); }
+      80%  { transform: rotate(1deg) scale(1.005); }
+      100% { transform: rotate(1deg) scale(1); }
+    }
+  </style>
+
+  <!-- 图片兜底 -->
+  <script>
+    document.addEventListener('error', function (e) {
+      const img = e.target;
+      if (img.tagName !== 'IMG' || img.dataset.fallback) return;
+      img.dataset.fallback = '1';
+      const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const cat = img.getAttribute('data-category') || '其他';
+      const alt = img.getAttribute('alt') || '';
+      const label = esc(alt.length > 8 ? alt.slice(0, 8) + '…' : alt);
+      const icons = { '人物': '👤', '自然风景': '🏞', '动物': '🐾', '建筑城市': '🏙', '运动体育': '⚽', '交通工具': '🚗', '食物': '🍽', '服饰时尚': '👗', '商业科技': '💼', '游戏娱乐': '🎮', '艺术': '🎨', '其他': '🖼' };
+      const icon = icons[cat] || '🖼';
+      const w = img.width || 400, h = img.height || 300;
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="100%" height="100%" fill="%23f3f4f6"/><text x="50%" y="45%" text-anchor="middle" font-size="${Math.min(w, h) * 0.18}" dominant-baseline="central">${icon}</text><text x="50%" y="68%" text-anchor="middle" font-size="${Math.min(w, h) * 0.07}" fill="%239ca3af" font-family="system-ui,sans-serif" dominant-baseline="central">${label}</text></svg>`;
+      img.src = 'data:image/svg+xml,' + svg;
+    }, true);
+  </script>
+</head>
+
+<body class="bg-background text-on-surface font-sans">
+
+  <!-- @nav:start 导航组件，不需要的页面则不要复制此段（从 @nav:start 到 @nav:end） -->
+  <header class="bg-surface/80 backdrop-blur-md sticky top-0 z-40">
+    <div class="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <div class="w-9 h-9 rounded-xl bg-[linear-gradient(135deg,#E57373_0%,#F0A45B_35%,#E9C96A_65%,#7FA3C9_100%)] flex items-center justify-center shadow-card">
+          <i data-lucide="book-open" class="w-5 h-5 text-white"></i>
+        </div>
+        <span class="font-display font-bold text-lg text-on-surface">果冻单词</span>
+      </div>
+      <nav class="flex items-center gap-1">
+        <a href="home.html" class="px-3.5 py-1.5 text-sm font-medium text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded-full transition-colors">上传识别</a>
+        <a href="practice.html" class="px-3.5 py-1.5 text-sm font-medium text-primary bg-primary/10 rounded-full" aria-current="page">背诵练习</a>
+        <a href="records.html" class="px-3.5 py-1.5 text-sm font-medium text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded-full transition-colors">背诵记录</a>
+      </nav>
+      <div class="w-9 h-9 rounded-full bg-primary/15 text-primary flex items-center justify-center text-sm font-medium" title="小初">初</div>
+    </div>
+    <!-- 彩虹线条：header 底边 -->
+    <div class="h-[3px] bg-[linear-gradient(90deg,#E57373_0%,#F0A45B_20%,#E9C96A_40%,#7E9F7A_60%,#7FA3C9_80%,#A88BC9_100%)] opacity-70"></div>
+  </header>
+  <!-- @nav:end 导航组件，不需要的页面则不要复制此段 -->
+
+  <main class="max-w-6xl mx-auto px-6 py-8 w-full">
+    <!-- @main-content:start -->
+    <div class="space-y-6">
+
+      <!-- 页面标题 -->
+      <div>
+        <h1 class="text-2xl font-bold font-display text-on-surface">今日背诵练习</h1>
+        <p class="text-sm text-on-surface-variant mt-1">看中文释义，拼写出对应的英文单词，正确 3 遍即完成背诵</p>
+      </div>
+
+      <!-- 区块1：顶部进度摘要条（今日进度 2/6，彩虹渐变进度条约 33%） -->
+      <section id="progress-summary" class="bg-surface/80 backdrop-blur-md rounded-2xl shadow-card p-5">
+        <div class="flex items-end justify-between gap-4 flex-wrap">
+          <div class="flex items-center gap-4">
+            <div class="w-11 h-11 rounded-xl bg-primary/12 flex items-center justify-center shrink-0">
+              <i data-lucide="target" class="w-5 h-5 text-primary"></i>
+            </div>
+            <div>
+              <p class="text-xs text-on-surface-variant">今日进度</p>
+              <p class="font-display font-bold text-on-surface leading-tight">
+                <span class="text-2xl">2</span>
+                <span class="text-sm font-sans font-medium text-on-surface-variant">/ 6 词已完成</span>
+              </p>
+            </div>
+          </div>
+          <p class="text-xs text-on-surface-variant inline-flex items-center gap-1.5 pb-1">
+            <i data-lucide="info" class="w-3.5 h-3.5"></i>正确拼写 3 遍 = 已背诵 1 遍
+          </p>
+        </div>
+        <div class="mt-4 h-2.5 rounded-full bg-surface-container overflow-hidden">
+          <!-- 彩虹渐变进度条：2/6 ≈ 33% -->
+          <div id="progress-bar-fill" class="h-full w-1/3 rounded-full bg-[linear-gradient(90deg,#E57373_0%,#F0A45B_20%,#E9C96A_40%,#7E9F7A_60%,#7FA3C9_80%,#A88BC9_100%)] transition-all duration-500"></div>
+        </div>
+      </section>
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+
+        <!-- 左列：核心单词卡 + 状态示例卡 -->
+        <div class="lg:col-span-2 space-y-6">
+
+          <!-- 区块2：核心单词卡（当前练习：endeavor，正确拼写示例状态） -->
+          <section id="core-word-card" class="bg-surface/80 backdrop-blur-md rounded-2xl shadow-float p-6 md:p-8 relative overflow-hidden">
+            <!-- 顶部彩虹细线装饰 -->
+            <div class="absolute top-0 left-0 right-0 h-1 bg-[linear-gradient(90deg,#E57373_0%,#F0A45B_20%,#E9C96A_40%,#7E9F7A_60%,#7FA3C9_80%,#A88BC9_100%)] opacity-70"></div>
+
+            <!-- 卡片顶部：词性标签 + 轮次进度 -->
+            <div class="flex items-center justify-between gap-3">
+              <div class="flex items-center gap-2">
+                <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-jelly-blue/15 text-jelly-blue">v.</span>
+                <span class="text-xs text-on-surface-variant">动词</span>
+              </div>
+              <span id="round-label" class="text-xs font-medium text-on-surface-variant">第 2 遍 / 共 3 遍</span>
+            </div>
+
+            <!-- 中文释义提示区（大号衬线字体） -->
+            <div class="mt-8 text-center">
+              <p class="text-4xl md:text-5xl font-display font-bold text-on-surface tracking-wide">努力<span class="text-on-surface-variant">; </span>尝试</p>
+              <p class="mt-3 text-xs text-on-surface-variant">根据释义拼写对应的英文单词</p>
+            </div>
+
+            <!-- 拼写输入框（示例：已正确拼写状态，绿色对勾 + 鼓励文案） -->
+            <div class="mt-6 max-w-md mx-auto">
+              <div class="relative">
+                <input id="spell-input" type="text" value="endeavor" placeholder="输入英文单词并按回车确认" autocomplete="off" spellcheck="false"
+                  class="w-full bg-surface-container border-none rounded-xl px-4 py-3.5 pr-11 text-lg font-display tracking-widest text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all" />
+                <i id="spell-check-icon" data-lucide="check-circle-2" class="w-5 h-5 text-success absolute right-4 top-1/2 -translate-y-1/2"></i>
+              </div>
+              <div class="mt-2.5 flex items-center justify-between gap-3">
+                <p id="letter-count" class="text-xs text-on-surface-variant">共 8 个字母</p>
+                <p id="spell-feedback" class="text-xs font-medium text-success inline-flex items-center gap-1">
+                  <i data-lucide="check" class="w-3.5 h-3.5"></i>正确！继续第 3 遍
+                </p>
+              </div>
+            </div>
+
+            <!-- 拼写进度圆点：前 2 个已点亮（彩虹渐变），第 3 个空心 -->
+            <div class="mt-6 flex items-center justify-center gap-2.5">
+              <span class="text-xs text-on-surface-variant mr-1">拼写进度</span>
+              <span id="dot-1" class="w-3.5 h-3.5 rounded-full bg-[linear-gradient(135deg,#E57373_0%,#F0A45B_50%,#E9C96A_100%)]"></span>
+              <span id="dot-2" class="w-3.5 h-3.5 rounded-full bg-[linear-gradient(135deg,#7E9F7A_0%,#7FA3C9_50%,#A88BC9_100%)]"></span>
+              <span id="dot-3" class="w-3.5 h-3.5 rounded-full border-2 border-outline bg-transparent"></span>
+            </div>
+
+            <!-- 提示按钮行 -->
+            <div class="mt-7 flex items-center justify-center gap-3 flex-wrap">
+              <button id="btn-hint" class="bg-surface-container text-on-surface border-none px-4 py-2 rounded-full text-sm font-medium hover:bg-surface-container-high active:scale-[0.98] transition-all inline-flex items-center gap-2">
+                <i data-lucide="lightbulb" class="w-4 h-4 text-jelly-yellow"></i>提示首字母
+              </button>
+              <button id="btn-skip" class="bg-surface-container text-on-surface border-none px-4 py-2 rounded-full text-sm font-medium hover:bg-surface-container-high active:scale-[0.98] transition-all inline-flex items-center gap-2">
+                <i data-lucide="skip-forward" class="w-4 h-4 text-on-surface-variant"></i>跳过这个单词
+              </button>
+            </div>
+          </section>
+
+          <!-- 状态预览分隔标签 -->
+          <div class="flex items-center gap-3 pt-1">
+            <span class="text-xs font-semibold tracking-widest text-on-surface-variant">状态预览</span>
+            <div class="flex-1 h-px bg-outline-variant/70"></div>
+            <span class="text-xs text-on-surface-variant/70">拼错 · 已完成</span>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
+
+            <!-- 区块3：错误示范状态卡（拼错示例：ephemeral，轻微倾斜 + 果冻抖动示意） -->
+            <section id="error-demo-card" class="bg-surface/80 backdrop-blur-md rounded-2xl shadow-card p-5 rotate-1 border border-error/20 cursor-pointer" title="点击重放果冻抖动效果">
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-jelly-purple/15 text-jelly-purple">adj.</span>
+                  <span class="text-sm font-semibold font-display text-on-surface">ephemeral</span>
+                </div>
+                <span class="text-xs text-on-surface-variant">第 1 遍 · 拼写错误</span>
+              </div>
+              <p class="mt-2.5 text-xs text-on-surface-variant">adj. 短暂的；朝生暮死的</p>
+              <p class="mt-2 text-sm font-medium text-error inline-flex items-center gap-1.5">
+                <i data-lucide="x-circle" class="w-4 h-4 shrink-0"></i>拼写错误：ephemaral ≠ ephemeral
+              </p>
+              <!-- 3 个圆点全部熄灭（error 色），进度已重置 -->
+              <div class="mt-3 flex items-center gap-1.5">
+                <span class="w-3 h-3 rounded-full border-2 border-error/40"></span>
+                <span class="w-3 h-3 rounded-full border-2 border-error/40"></span>
+                <span class="w-3 h-3 rounded-full border-2 border-error/40"></span>
+                <span class="text-xs text-error/90 ml-1 inline-flex items-center gap-1"><i data-lucide="rotate-ccw" class="w-3 h-3"></i>进度已重置</span>
+              </div>
+              <p class="mt-3 text-xs text-on-surface-variant">重新拼写 3 遍直至全部正确</p>
+            </section>
+
+            <!-- 区块4：已完成单词小卡（serendipity，彩虹细边框装饰） -->
+            <div id="done-demo-card" class="rounded-2xl p-[1.5px] bg-[linear-gradient(120deg,#E57373_0%,#F0A45B_25%,#E9C96A_50%,#7E9F7A_75%,#A88BC9_100%)] shadow-card">
+              <div class="bg-surface/90 backdrop-blur-md rounded-2xl p-5">
+                <div class="flex items-center justify-between gap-2">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <i data-lucide="check-circle-2" class="w-5 h-5 text-success shrink-0"></i>
+                    <span class="text-sm font-semibold font-display text-on-surface truncate">serendipity</span>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-success/15 text-success shrink-0">已完成</span>
+                  </div>
+                  <i data-lucide="sparkles" class="w-4 h-4 text-jelly-yellow shrink-0"></i>
+                </div>
+                <p class="mt-2.5 text-xs text-on-surface-variant">n. 意外发现珍宝的运气；机缘巧合</p>
+                <p class="mt-1.5 text-xs font-medium text-success">已背诵 1 遍 · 累计 3 次</p>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- 区块5：今日待背单词队列（右列） -->
+        <aside id="queue-card" class="bg-surface/80 backdrop-blur-md rounded-2xl shadow-card p-5 lg:sticky lg:top-24">
+          <div class="flex items-center justify-between gap-2">
+            <h2 class="text-base font-semibold text-on-surface inline-flex items-center gap-2">
+              <i data-lucide="list-checks" class="w-5 h-5 text-primary"></i>今日待背队列
+            </h2>
+            <span class="text-xs text-on-surface-variant">已完成 2 / 6</span>
+          </div>
+
+          <div id="queue-list" class="mt-3 space-y-1">
+
+            <!-- 待背队列-单词1：endeavor（进行中 2/3，当前练习高亮） -->
+            <div id="queue-item-1" data-word="endeavor" class="queue-row flex items-center justify-between gap-3 px-3 py-3 rounded-xl bg-primary/10 ring-1 ring-primary/20 cursor-pointer">
+              <div class="min-w-0">
+                <p class="text-sm font-semibold text-on-surface inline-flex items-center gap-2">
+                  endeavor
+                  <span class="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-primary/15 text-primary">练习中</span>
+                </p>
+                <p class="text-xs text-on-surface-variant mt-0.5">v. 努力；尝试</p>
+              </div>
+              <div class="flex items-center gap-1 shrink-0">
+                <span class="w-2 h-2 rounded-full bg-primary"></span>
+                <span class="w-2 h-2 rounded-full bg-primary"></span>
+                <span class="w-2 h-2 rounded-full border border-outline bg-surface"></span>
+                <span class="text-xs text-on-surface-variant ml-1">2/3</span>
+              </div>
+            </div>
+
+            <!-- 待背队列-单词2：ephemeral（拼写错误重置 0/3） -->
+            <div id="queue-item-2" data-word="ephemeral" class="queue-row flex items-center justify-between gap-3 px-3 py-3 rounded-xl hover:bg-surface-container/50 transition-colors cursor-pointer">
+              <div class="min-w-0">
+                <p class="text-sm font-semibold text-on-surface inline-flex items-center gap-2">
+                  ephemeral
+                  <span class="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-error/15 text-error">出错重置</span>
+                </p>
+                <p class="text-xs text-on-surface-variant mt-0.5">adj. 短暂的；朝生暮死的</p>
+              </div>
+              <div class="flex items-center gap-1 shrink-0">
+                <i data-lucide="rotate-ccw" class="w-3.5 h-3.5 text-error/80"></i>
+                <span class="w-2 h-2 rounded-full border border-error/40"></span>
+                <span class="w-2 h-2 rounded-full border border-error/40"></span>
+                <span class="w-2 h-2 rounded-full border border-error/40"></span>
+                <span class="text-xs text-error ml-0.5">0/3</span>
+              </div>
+            </div>
+
+            <!-- 待背队列-单词3：serendipity（已完成，绿色对勾） -->
+            <div id="queue-item-3" data-word="serendipity" class="queue-row flex items-center justify-between gap-3 px-3 py-3 rounded-xl hover:bg-surface-container/50 transition-colors cursor-pointer">
+              <div class="min-w-0">
+                <p class="text-sm font-semibold text-on-surface">serendipity</p>
+                <p class="text-xs text-on-surface-variant mt-0.5">n. 意外发现珍宝的运气；机缘巧合</p>
+              </div>
+              <div class="flex items-center gap-1.5 shrink-0">
+                <i data-lucide="check-circle-2" class="w-4 h-4 text-success"></i>
+                <span class="text-xs font-medium text-success">已完成</span>
+              </div>
+            </div>
+
+            <!-- 待背队列-单词4：resilience（待开始 0/3） -->
+            <div id="queue-item-4" data-word="resilience" class="queue-row flex items-center justify-between gap-3 px-3 py-3 rounded-xl hover:bg-surface-container/50 transition-colors cursor-pointer">
+              <div class="min-w-0">
+                <p class="text-sm font-semibold text-on-surface">resilience</p>
+                <p class="text-xs text-on-surface-variant mt-0.5">n. 韧性；快速恢复的能力</p>
+              </div>
+              <div class="flex items-center gap-1 shrink-0">
+                <span class="w-2 h-2 rounded-full border border-outline bg-surface"></span>
+                <span class="w-2 h-2 rounded-full border border-outline bg-surface"></span>
+                <span class="w-2 h-2 rounded-full border border-outline bg-surface"></span>
+                <span class="text-xs text-on-surface-variant ml-1">0/3</span>
+              </div>
+            </div>
+
+            <!-- 待背队列-单词5：wanderlust（待开始 0/3） -->
+            <div id="queue-item-5" data-word="wanderlust" class="queue-row flex items-center justify-between gap-3 px-3 py-3 rounded-xl hover:bg-surface-container/50 transition-colors cursor-pointer">
+              <div class="min-w-0">
+                <p class="text-sm font-semibold text-on-surface">wanderlust</p>
+                <p class="text-xs text-on-surface-variant mt-0.5">n. 漫游癖；对旅行的渴望</p>
+              </div>
+              <div class="flex items-center gap-1 shrink-0">
+                <span class="w-2 h-2 rounded-full border border-outline bg-surface"></span>
+                <span class="w-2 h-2 rounded-full border border-outline bg-surface"></span>
+                <span class="w-2 h-2 rounded-full border border-outline bg-surface"></span>
+                <span class="text-xs text-on-surface-variant ml-1">0/3</span>
+              </div>
+            </div>
+
+            <!-- 待背队列-单词6：quintessential（待开始 0/3） -->
+            <div id="queue-item-6" data-word="quintessential" class="queue-row flex items-center justify-between gap-3 px-3 py-3 rounded-xl hover:bg-surface-container/50 transition-colors cursor-pointer">
+              <div class="min-w-0">
+                <p class="text-sm font-semibold text-on-surface">quintessential</p>
+                <p class="text-xs text-on-surface-variant mt-0.5">adj. 典型的；精髓的</p>
+              </div>
+              <div class="flex items-center gap-1 shrink-0">
+                <span class="w-2 h-2 rounded-full border border-outline bg-surface"></span>
+                <span class="w-2 h-2 rounded-full border border-outline bg-surface"></span>
+                <span class="w-2 h-2 rounded-full border border-outline bg-surface"></span>
+                <span class="text-xs text-on-surface-variant ml-1">0/3</span>
+              </div>
+            </div>
+
+          </div>
+
+          <p class="mt-4 text-xs text-on-surface-variant/80 inline-flex items-start gap-1.5">
+            <i data-lucide="rainbow" class="w-3.5 h-3.5 mt-0.5 text-jelly-purple shrink-0"></i>
+            正确拼写 3 遍 = 已背诵 1 遍，完成后自动记入背诵记录
+          </p>
+        </aside>
+
+      </div>
+    </div>
+    <!-- @main-content:end -->
+  </main>
+
+  <script>
+    $(function () {
+      var CURRENT_WORD = 'endeavor';   // 当前练习单词（示例演示状态）
+      var currentRound = 2;            // 已正确拼写的遍数（对应 2 个点亮圆点）
+
+      // 果冻抖动：拼写错误或点击状态示例卡时触发（keyframes 定义在页内 <style>）
+      function jellyShake($el) {
+        var node = $el[0];
+        node.style.animation = 'none';
+        void node.offsetWidth; // 强制 reflow 以重启动画
+        node.style.animation = 'jelly-shake 0.7s ease';
+        setTimeout(function () { node.style.animation = ''; }, 750);
+      }
+
+      // 输入框：实时字母计数
+      $('#spell-input').on('input', function () {
+        var len = String($(this).val() || '').trim().length;
+        $('#letter-count').text(len === 0 ? '共 8 个字母' : '已输入 ' + len + ' / 8 个字母');
+      });
+
+      // 输入框：回车提交校验（当前单词 endeavor，与静态示例一致）
+      $('#spell-input').on('keydown', function (e) {
+        if (e.key !== 'Enter') return;
+        var val = String($(this).val() || '').trim().toLowerCase();
+        if (val === CURRENT_WORD) {
+          // 拼写正确：点亮下一个圆点并更新轮次与反馈文案
+          if (currentRound < 3) {
+            currentRound += 1;
+            $('#dot-' + currentRound).removeClass('border-2 border-outline bg-transparent')
+              .addClass('bg-[linear-gradient(135deg,#7E9F7A_0%,#7FA3C9_50%,#A88BC9_100%)]');
+            $('#round-label').text('第 ' + currentRound + ' 遍 / 共 3 遍');
+            if (currentRound >= 3) {
+              $('#spell-feedback').removeClass('text-success').addClass('text-primary')
+                .text('太棒了！endeavor 已背诵 1 遍');
+            } else {
+              $('#spell-feedback').removeClass('text-error text-primary').addClass('text-success')
+                .text('正确！继续第 ' + (currentRound + 1) + ' 遍');
+            }
+          }
+        } else {
+          // 拼写错误：核心卡果冻抖动 + 红色反馈（拼错 3 次重置进度的逻辑见"跳过/错误重置"注释）
+          jellyShake($('#core-word-card'));
+          $('#spell-feedback').removeClass('text-success text-primary').addClass('text-error')
+            .text('拼写错误，请重新输入');
+        }
+      });
+
+      // 提示首字母按钮：输入框为空时填入首字母（简单交互，直接实现）
+      $('#btn-hint').on('click', function () {
+        var input = $('#spell-input');
+        if (String(input.val() || '').trim() === '') {
+          input.val(CURRENT_WORD.charAt(0)).trigger('input').focus();
+        }
+        console.log('提示首字母:', CURRENT_WORD.charAt(0));
+      });
+
+      // 跳过这个单词按钮 —— 复杂交互，此处仅绑定入口，完整行为如下：
+      // 1. 将当前单词 endeavor 在右侧队列中标记为"已跳过"（灰显 + skip 图标），并记录跳过次数
+      // 2. 从队列中取出下一个待背单词（resilience）加载到核心卡片：
+      //    更新词性标签（n.）、释义大字、字母数提示（共 10 个字母）、
+      //    清空输入框与反馈文案、重置 3 个进度圆点为空心
+      // 3. 更新顶部进度摘要条的 n / 6 数字与彩虹进度条宽度
+      // 4. 向背诵记录接口上报一次"跳过"事件
+      $('#btn-skip').on('click', function () {
+        console.log('跳过当前单词:', CURRENT_WORD);
+      });
+
+      // 错误示范卡：点击重放果冻抖动（拼错时的动效示意）
+      $('#error-demo-card').on('click', function () {
+        jellyShake($(this));
+        console.log('演示：拼错时卡片果冻抖动');
+      });
+
+      // 队列项点击 —— 复杂交互，此处仅绑定入口，完整行为如下：
+      // 1. 若点击的是"已完成"单词（serendipity），提示"该单词今日已背诵完成"，不切换
+      // 2. 否则将点击的单词加载到核心单词卡：更新词性/释义/字母数提示、
+      //    清空输入框与反馈文案、按该单词当前进度点亮圆点
+      // 3. 更新队列高亮（当前练习行 bg-primary/10）与顶部进度摘要条
+      $('#queue-list').on('click', '.queue-row', function () {
+        console.log('切换练习单词:', $(this).data('word'));
+      });
+    });
+  </script>
+  <script>lucide.createIcons();</script>
+</body>
+
+</html>

@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>上传识别 - 果冻单词</title>
+
+  <!-- 字体（按需，系统字体时省略；只能用 Google 字体，CSS 地址前缀：https://lf-code-agent.coze.cn/obj/x-ai-cn/fonts/google） -->
+  <!-- <link href="https://lf-code-agent.coze.cn/obj/x-ai-cn/fonts/google/google-all-fonts.css" rel="stylesheet"/> -->
+
+  <link href="https://lf-code-agent.coze.cn/obj/x-ai-cn/fonts/google/google-all-fonts.css" rel="stylesheet"/>
+
+  <script src="https://lf-code-agent.coze.cn/obj/x-ai-cn/cdn/jquery/jquery-3.7.1.min.js"></script>
+  <script src="https://lf-code-agent.coze.cn/obj/x-ai-cn/cdn/lucide/lucide-1.11.0.min.js"></script>
+  <script src="https://lf-code-agent.coze.cn/obj/x-ai-cn/cdn/tailwindcss/tailwindcss-browser-4.2.4.min.js"></script>
+
+  <style type="text/tailwindcss">
+    @theme {
+      /* === 品牌色（纸感暖橙强调） === */
+      --color-primary:              #C96F3D;
+      --color-primary-container:    #F6DCC5;
+      --color-on-primary:           #ffffff;
+      /* === 背景 / 表面（暖纸白） === */
+      --color-background:                 #FBF3E7;
+      --color-surface-container-lowest:   #FFFDFA;
+      --color-surface:                    #FFF9F1;
+      --color-surface-container:          #F4EADA;
+      --color-surface-container-high:     #EEE1CE;
+      --color-surface-container-highest:  #E7D6BF;
+      /* === 文字 === */
+      --color-on-surface:           #31251B;
+      --color-on-surface-variant:   #8B7662;
+      /* === 功能色（柔和纸感） === */
+      --color-success:  #7E9F7A;
+      --color-error:    #D96C5F;
+      --color-warning:  #D9A13B;
+      /* === 边框 === */
+      --color-outline:          #D8C6B0;
+      --color-outline-variant:  #EBDFCF;
+      /* === 彩虹果冻色系（柔和彩虹线条与果冻点缀） === */
+      --color-jelly-red:     #E57373;
+      --color-jelly-orange:  #F0A45B;
+      --color-jelly-yellow:  #E9C96A;
+      --color-jelly-green:   #7E9F7A;
+      --color-jelly-blue:    #7FA3C9;
+      --color-jelly-purple:  #A88BC9;
+      /* === 圆角（果冻圆润） === */
+      --radius-sm:   0.5rem;
+      --radius-md:   0.75rem;
+      --radius-lg:   1rem;
+      --radius-xl:   1.25rem;
+      --radius-2xl:  1.75rem;
+      --radius-full: 9999px;
+      /* === 阴影（轻柔暖调） === */
+      --shadow-card:   0 2px 12px rgba(139,118,98,0.10);
+      --shadow-float:  0 10px 30px rgba(139,118,98,0.16);
+      --shadow-dialog: 0 25px 50px rgba(139,118,98,0.20);
+      /* === 字体 === */
+      --font-sans: "Lora", "Noto Serif SC", Georgia, system-ui, serif;
+      --font-display: Georgia, "Noto Serif SC", serif;
+    }
+  </style>
+
+  <!-- 图片兜底 -->
+  <script>
+    document.addEventListener('error', function (e) {
+      const img = e.target;
+      if (img.tagName !== 'IMG' || img.dataset.fallback) return;
+      img.dataset.fallback = '1';
+      const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const cat = img.getAttribute('data-category') || '其他';
+      const alt = img.getAttribute('alt') || '';
+      const label = esc(alt.length > 8 ? alt.slice(0, 8) + '…' : alt);
+      const icons = { '人物': '👤', '自然风景': '🏞', '动物': '🐾', '建筑城市': '🏙', '运动体育': '⚽', '交通工具': '🚗', '食物': '🍽', '服饰时尚': '👗', '商业科技': '💼', '游戏娱乐': '🎮', '艺术': '🎨', '其他': '🖼' };
+      const icon = icons[cat] || '🖼';
+      const w = img.width || 400, h = img.height || 300;
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="100%" height="100%" fill="%23f3f4f6"/><text x="50%" y="45%" text-anchor="middle" font-size="${Math.min(w, h) * 0.18}" dominant-baseline="central">${icon}</text><text x="50%" y="68%" text-anchor="middle" font-size="${Math.min(w, h) * 0.07}" fill="%239ca3af" font-family="system-ui,sans-serif" dominant-baseline="central">${label}</text></svg>`;
+      img.src = 'data:image/svg+xml,' + svg;
+    }, true);
+  </script>
+</head>
+
+<body class="bg-background text-on-surface font-sans">
+
+  <!-- @nav:start 导航组件，不需要的页面则不要复制此段（从 @nav:start 到 @nav:end） -->
+  <header class="bg-surface/80 backdrop-blur-md sticky top-0 z-40">
+    <div class="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <div class="w-9 h-9 rounded-xl bg-[linear-gradient(135deg,#E57373_0%,#F0A45B_35%,#E9C96A_65%,#7FA3C9_100%)] flex items-center justify-center shadow-card">
+          <i data-lucide="book-open" class="w-5 h-5 text-white"></i>
+        </div>
+        <span class="font-display font-bold text-lg text-on-surface">果冻单词</span>
+      </div>
+      <nav class="flex items-center gap-1">
+        <a href="home.html" class="px-3.5 py-1.5 text-sm font-medium text-primary bg-primary/10 rounded-full" aria-current="page">上传识别</a>
+        <a href="practice.html" class="px-3.5 py-1.5 text-sm font-medium text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded-full transition-colors">背诵练习</a>
+        <a href="records.html" class="px-3.5 py-1.5 text-sm font-medium text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded-full transition-colors">背诵记录</a>
+      </nav>
+      <div class="w-9 h-9 rounded-full bg-primary/15 text-primary flex items-center justify-center text-sm font-medium" title="小初">初</div>
+    </div>
+    <!-- 彩虹线条：header 底边 -->
+    <div class="h-[3px] bg-[linear-gradient(90deg,#E57373_0%,#F0A45B_20%,#E9C96A_40%,#7E9F7A_60%,#7FA3C9_80%,#A88BC9_100%)] opacity-70"></div>
+  </header>
+  <!-- @nav:end 导航组件，不需要的页面则不要复制此段 -->
+
+  <main class="max-w-6xl mx-auto px-6 py-8 w-full">
+    <!-- @main-content:start -->
+
+    <!-- ===== 页面标题区 ===== -->
+    <section class="text-center pt-2 pb-1">
+      <h1 class="font-display text-3xl md:text-4xl font-bold text-on-surface tracking-tight">上传文件，识别单词</h1>
+      <!-- 彩虹点缀短线条 -->
+      <div class="w-28 h-1 rounded-full mx-auto mt-4 opacity-80 bg-[linear-gradient(90deg,#E57373_0%,#F0A45B_20%,#E9C96A_40%,#7E9F7A_60%,#7FA3C9_80%,#A88BC9_100%)]"></div>
+      <p class="text-sm md:text-base text-on-surface-variant mt-4">支持图片（jpg/png/jpeg）、Word、PDF、PPT、Excel，自动提取英文单词</p>
+    </section>
+
+    <!-- ===== 上传区域（核心） ===== -->
+    <section class="mt-8 max-w-4xl mx-auto">
+      <div id="upload-card" role="button" tabindex="0" aria-label="上传文件"
+           class="bg-surface/80 backdrop-blur-md rounded-2xl shadow-card border border-dashed border-outline-variant/30
+                  hover:shadow-float hover:-translate-y-1 transition-all duration-300 cursor-pointer
+                  px-8 py-14 flex flex-col items-center text-center">
+        <div class="w-20 h-20 rounded-2xl bg-primary/10 flex items-center justify-center">
+          <i data-lucide="upload-cloud" class="w-10 h-10 text-primary"></i>
+        </div>
+        <p class="font-display text-lg font-semibold text-on-surface mt-5">点击或拖拽文件到此处</p>
+        <p class="text-xs text-on-surface-variant mt-1.5">上传后自动提取文件中的英文单词</p>
+        <!-- 支持的格式标签 -->
+        <div class="flex flex-wrap items-center justify-center gap-2 mt-7">
+          <!-- 格式标签-图片 -->
+          <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container/70 border border-outline-variant/30 text-xs font-medium text-on-surface-variant">
+            <i data-lucide="image" class="w-3.5 h-3.5 text-jelly-red"></i>图片
+          </span>
+          <!-- 格式标签-Word -->
+          <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container/70 border border-outline-variant/30 text-xs font-medium text-on-surface-variant">
+            <i data-lucide="file-text" class="w-3.5 h-3.5 text-jelly-orange"></i>Word
+          </span>
+          <!-- 格式标签-PDF -->
+          <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container/70 border border-outline-variant/30 text-xs font-medium text-on-surface-variant">
+            <i data-lucide="file" class="w-3.5 h-3.5 text-jelly-yellow"></i>PDF
+          </span>
+          <!-- 格式标签-PPT -->
+          <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container/70 border border-outline-variant/30 text-xs font-medium text-on-surface-variant">
+            <i data-lucide="presentation" class="w-3.5 h-3.5 text-jelly-green"></i>PPT
+          </span>
+          <!-- 格式标签-Excel -->
+          <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container/70 border border-outline-variant/30 text-xs font-medium text-on-surface-variant">
+            <i data-lucide="table" class="w-3.5 h-3.5 text-jelly-blue"></i>Excel
+          </span>
+        </div>
+      </div>
+
+      <!-- 临时存储说明条 -->
+      <div id="privacy-tip" class="mt-4 bg-success/10 rounded-xl px-4 py-3 flex items-center justify-center gap-2">
+        <i data-lucide="shield-check" class="w-4 h-4 text-success shrink-0"></i>
+        <p class="text-xs text-on-surface-variant">上传文件仅临时保存用于本次单词识别，背诵完成后自动删除</p>
+      </div>
+    </section>
+
+    <!-- ===== 识别进度示例 ===== -->
+    <section class="mt-8 max-w-4xl mx-auto">
+      <div id="recognizing-card" class="bg-surface/80 backdrop-blur-md rounded-2xl shadow-card border border-outline-variant/30 p-5">
+        <div class="flex items-center gap-4">
+          <div class="w-11 h-11 rounded-xl bg-jelly-red/10 flex items-center justify-center shrink-0">
+            <i data-lucide="file-text" class="w-5 h-5 text-jelly-red"></i>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center justify-between gap-3">
+              <p class="text-sm font-semibold text-on-surface truncate">英语阅读材料.pdf</p>
+              <p class="text-xs text-on-surface-variant shrink-0 inline-flex items-center gap-1.5">
+                <i data-lucide="loader-2" class="w-3.5 h-3.5 text-primary animate-spin"></i>正在识别第 3 页
+              </p>
+            </div>
+            <div class="flex items-center gap-3 mt-2.5">
+              <div id="progress-track" class="flex-1 h-2 rounded-full bg-surface-container overflow-hidden">
+                <!-- 彩虹渐变进度条：68% -->
+                <div id="progress-bar" class="h-full w-[68%] rounded-full bg-[linear-gradient(90deg,#E57373_0%,#F0A45B_25%,#E9C96A_50%,#7E9F7A_75%,#7FA3C9_100%)]"></div>
+              </div>
+              <span id="progress-percent" class="font-display text-sm font-bold text-primary shrink-0">68%</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 识别结果单词列表（核心） ===== -->
+    <section class="mt-10 max-w-4xl mx-auto">
+      <!-- 列表头部：统计 + 操作 -->
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 class="font-display text-xl font-bold text-on-surface">识别结果</h2>
+          <p class="text-xs text-on-surface-variant mt-1">本次识别共 <span id="word-count" class="font-semibold text-primary">6</span> 个单词</p>
+        </div>
+        <div class="flex items-center gap-2.5">
+          <button id="btn-add-all"
+                  class="bg-primary text-on-primary px-4 py-2 rounded-full text-sm font-medium
+                         hover:opacity-90 active:scale-[0.98] transition-all inline-flex items-center gap-1.5 shadow-card">
+            <i data-lucide="check" class="w-4 h-4"></i><span id="btn-add-all-label">全部加入背诵</span>
+          </button>
+          <a id="btn-start-practice" href="practice.html"
+             class="bg-surface-container text-on-surface px-4 py-2 rounded-full text-sm font-medium
+                    hover:bg-surface-container-high active:scale-[0.98] transition-all inline-flex items-center gap-1.5">
+            <i data-lucide="play" class="w-4 h-4 text-primary"></i>开始背诵
+          </a>
+        </div>
+      </div>
+
+      <!-- 单词列表 -->
+      <div id="word-list" class="mt-5 space-y-3">
+
+        <!-- 列表-单词1：serendipity -->
+        <div class="word-item bg-surface/80 backdrop-blur-md rounded-2xl shadow-card border border-outline-variant/30
+                    px-5 py-4 flex items-center gap-4 hover:shadow-float hover:-translate-y-0.5 transition-all duration-300"
+             data-word="serendipity">
+          <div class="w-1 self-stretch rounded-full bg-[linear-gradient(180deg,#E57373,#F0A45B)] shrink-0"></div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="font-display text-lg font-bold text-on-surface">serendipity</span>
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium italic bg-jelly-purple/15 text-jelly-purple">n.</span>
+            </div>
+            <p class="text-sm text-on-surface-variant mt-1">意外发现珍宝的运气; 机缘巧合</p>
+            <p class="text-xs text-on-surface-variant/70 mt-1.5 inline-flex items-center gap-1">
+              <i data-lucide="file-text" class="w-3 h-3"></i>来源：英语阅读材料.pdf
+            </p>
+          </div>
+          <div class="flex items-center gap-1 shrink-0">
+            <button class="btn-edit w-9 h-9 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-surface-container hover:text-primary transition-colors" title="编辑释义">
+              <i data-lucide="pencil" class="w-4 h-4"></i>
+            </button>
+            <button class="btn-delete w-9 h-9 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-error/10 hover:text-error transition-colors" title="从列表删除">
+              <i data-lucide="trash-2" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- 列表-单词2：ephemeral -->
+        <div class="word-item bg-surface/80 backdrop-blur-md rounded-2xl shadow-card border border-outline-variant/30
+                    px-5 py-4 flex items-center gap-4 hover:shadow-float hover:-translate-y-0.5 transition-all duration-300"
+             data-word="ephemeral">
+          <div class="w-1 self-stretch rounded-full bg-[linear-gradient(180deg,#F0A45B,#E9C96A)] shrink-0"></div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="font-display text-lg font-bold text-on-surface">ephemeral</span>
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium italic bg-jelly-green/15 text-jelly-green">adj.</span>
+            </div>
+            <p class="text-sm text-on-surface-variant mt-1">短暂的; 朝生暮死的</p>
+            <p class="text-xs text-on-surface-variant/70 mt-1.5 inline-flex items-center gap-1">
+              <i data-lucide="file-text" class="w-3 h-3"></i>来源：英语阅读材料.pdf
+            </p>
+          </div>
+          <div class="flex items-center gap-1 shrink-0">
+            <button class="btn-edit w-9 h-9 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-surface-container hover:text-primary transition-colors" title="编辑释义">
+              <i data-lucide="pencil" class="w-4 h-4"></i>
+            </button>
+            <button class="btn-delete w-9 h-9 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-error/10 hover:text-error transition-colors" title="从列表删除">
+              <i data-lucide="trash-2" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- 列表-单词3：wanderlust（释义自动搜索匹配） -->
+        <div class="word-item bg-surface/80 backdrop-blur-md rounded-2xl shadow-card border border-outline-variant/30
+                    px-5 py-4 flex items-center gap-4 hover:shadow-float hover:-translate-y-0.5 transition-all duration-300"
+             data-word="wanderlust">
+          <div class="w-1 self-stretch rounded-full bg-[linear-gradient(180deg,#E9C96A,#7E9F7A)] shrink-0"></div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="font-display text-lg font-bold text-on-surface">wanderlust</span>
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium italic bg-jelly-purple/15 text-jelly-purple">n.</span>
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-jelly-blue/15 text-jelly-blue">
+                <i data-lucide="search" class="w-3 h-3"></i>搜索匹配
+              </span>
+            </div>
+            <p class="text-sm text-on-surface-variant mt-1">释义已自动匹配：旅行癖; 渴望漫游</p>
+            <p class="text-xs text-on-surface-variant/70 mt-1.5 inline-flex items-center gap-1">
+              <i data-lucide="file-text" class="w-3 h-3"></i>来源：英语阅读材料.pdf
+            </p>
+          </div>
+          <div class="flex items-center gap-1 shrink-0">
+            <button class="btn-edit w-9 h-9 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-surface-container hover:text-primary transition-colors" title="编辑释义">
+              <i data-lucide="pencil" class="w-4 h-4"></i>
+            </button>
+            <button class="btn-delete w-9 h-9 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-error/10 hover:text-error transition-colors" title="从列表删除">
+              <i data-lucide="trash-2" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- 列表-单词4：endeavor -->
+        <div class="word-item bg-surface/80 backdrop-blur-md rounded-2xl shadow-card border border-outline-variant/30
+                    px-5 py-4 flex items-center gap-4 hover:shadow-float hover:-translate-y-0.5 transition-all duration-300"
+             data-word="endeavor">
+          <div class="w-1 self-stretch rounded-full bg-[linear-gradient(180deg,#7E9F7A,#7FA3C9)] shrink-0"></div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="font-display text-lg font-bold text-on-surface">endeavor</span>
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium italic bg-jelly-orange/20 text-jelly-orange">n./v.</span>
+            </div>
+            <p class="text-sm text-on-surface-variant mt-1">努力; 尝试</p>
+            <p class="text-xs text-on-surface-variant/70 mt-1.5 inline-flex items-center gap-1">
+              <i data-lucide="file-text" class="w-3 h-3"></i>来源：英语阅读材料.pdf
+            </p>
+          </div>
+          <div class="flex items-center gap-1 shrink-0">
+            <button class="btn-edit w-9 h-9 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-surface-container hover:text-primary transition-colors" title="编辑释义">
+              <i data-lucide="pencil" class="w-4 h-4"></i>
+            </button>
+            <button class="btn-delete w-9 h-9 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-error/10 hover:text-error transition-colors" title="从列表删除">
+              <i data-lucide="trash-2" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- 列表-单词5：resilience -->
+        <div class="word-item bg-surface/80 backdrop-blur-md rounded-2xl shadow-card border border-outline-variant/30
+                    px-5 py-4 flex items-center gap-4 hover:shadow-float hover:-translate-y-0.5 transition-all duration-300"
+             data-word="resilience">
+          <div class="w-1 self-stretch rounded-full bg-[linear-gradient(180deg,#7FA3C9,#A88BC9)] shrink-0"></div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="font-display text-lg font-bold text-on-surface">resilience</span>
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium italic bg-jelly-purple/15 text-jelly-purple">n.</span>
+            </div>
+            <p class="text-sm text-on-surface-variant mt-1">韧性; 恢复力</p>
+            <p class="text-xs text-on-surface-variant/70 mt-1.5 inline-flex items-center gap-1">
+              <i data-lucide="file-text" class="w-3 h-3"></i>来源：英语阅读材料.pdf
+            </p>
+          </div>
+          <div class="flex items-center gap-1 shrink-0">
+            <button class="btn-edit w-9 h-9 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-surface-container hover:text-primary transition-colors" title="编辑释义">
+              <i data-lucide="pencil" class="w-4 h-4"></i>
+            </button>
+            <button class="btn-delete w-9 h-9 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-error/10 hover:text-error transition-colors" title="从列表删除">
+              <i data-lucide="trash-2" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- 列表-单词6：quintessential（释义搜索中） -->
+        <div class="word-item bg-surface/80 backdrop-blur-md rounded-2xl shadow-card border border-outline-variant/30
+                    px-5 py-4 flex items-center gap-4 hover:shadow-float transition-all duration-300"
+             data-word="quintessential">
+          <div class="w-1 self-stretch rounded-full bg-[linear-gradient(180deg,#A88BC9,#E57373)] shrink-0"></div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="font-display text-lg font-bold text-on-surface">quintessential</span>
+              <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-jelly-yellow/20 text-warning">
+                <i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i>正在搜索释义…
+              </span>
+            </div>
+            <p class="text-sm text-on-surface-variant/60 mt-1">正在搜索释义…</p>
+            <p class="text-xs text-on-surface-variant/70 mt-1.5 inline-flex items-center gap-1">
+              <i data-lucide="file-text" class="w-3 h-3"></i>来源：英语阅读材料.pdf
+            </p>
+          </div>
+          <div class="flex items-center gap-1 shrink-0">
+            <button class="btn-edit w-9 h-9 rounded-full flex items-center justify-center text-on-surface-variant/40 cursor-not-allowed" title="释义匹配中，暂不可编辑" disabled>
+              <i data-lucide="pencil" class="w-4 h-4"></i>
+            </button>
+            <button class="btn-delete w-9 h-9 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-error/10 hover:text-error transition-colors" title="从列表删除">
+              <i data-lucide="trash-2" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- 操作反馈 Toast -->
+    <div id="toast" class="fixed bottom-8 left-1/2 -translate-x-1/2 bg-on-surface text-background text-sm px-5 py-2.5
+                           rounded-full shadow-float opacity-0 pointer-events-none transition-opacity duration-300 z-50"></div>
+
+    <!-- @main-content:end -->
+  </main>
+
+  <script>lucide.createIcons();</script>
+  <script>
+    $(function () {
+      // ================= 上传区域（核心入口） =================
+      // 点击上传卡片：原型仅打印日志，实际应调用第三方文件选择 / 上传 / OCR 识别接口
+      $('#upload-card').on('click', function () {
+        console.log('需要调用第三方接口实现文件选择、上传与 OCR 单词识别（支持 jpg/png/jpeg、Word、PDF、PPT、Excel）');
+      });
+
+      // 拖拽上传：dragover 时轻微放大高亮，drop 后应读取文件并调用识别接口
+      $('#upload-card').on('dragover', function (e) {
+        e.preventDefault();
+        $(this).css('transform', 'scale(1.01)');
+      }).on('dragleave drop', function (e) {
+        e.preventDefault();
+        $(this).css('transform', '');
+        if (e.type === 'drop') {
+          console.log('需要调用第三方接口实现拖拽文件上传与 OCR 单词识别');
+        }
+      });
+
+      // ================= 全部加入背诵 =================
+      $('#btn-add-all').on('click', function () {
+        const count = $('#word-list .word-item').length;
+        if (count === 0) return;
+        $(this).prop('disabled', true).addClass('opacity-70 cursor-not-allowed');
+        $('#btn-add-all-label').text('已加入 ' + count + ' 个单词');
+        $('#toast').text('已将 ' + count + ' 个单词加入今日背诵计划').removeClass('opacity-0');
+        setTimeout(function () { $('#toast').addClass('opacity-0'); }, 2200);
+      });
+
+      // ================= 删除单个单词 =================
+      $('#word-list').on('click', '.btn-delete', function () {
+        $(this).closest('.word-item').remove();
+        // 同步更新结果计数
+        const count = $('#word-list .word-item').length;
+        $('#word-count').text(count);
+        // 全部删除后展示空状态提示
+        if (count === 0 && $('#word-empty').length === 0) {
+          $('#word-list').append('<p id="word-empty" class="text-center text-sm text-on-surface-variant py-12">单词已全部处理完毕，可继续上传新文件识别</p>');
+        }
+      });
+
+      // ================= 编辑单词 =================
+      // 点击后应实现内联编辑，完整交互行为：
+      // 1. 将该单词行的英文单词、词性、中文释义替换为可输入的 input 输入框，自动聚焦并全选
+      // 2. 按 Enter 保存修改并更新行内文字，按 ESC 取消编辑并恢复原内容
+      // 3. 保存后将修改后的单词与释义同步写入本地背诵词库
+      $('#word-list').on('click', '.btn-edit', function () {
+        console.log('编辑单词:', $(this).closest('.word-item').data('word'));
+      });
+
+      // ================= 开始背诵 =================
+      // “开始背诵”为 <a href="practice.html"> 链接，直接跳转背诵练习页，无需额外 JS
+    });
+  </script>
+</body>
+
+</html>
