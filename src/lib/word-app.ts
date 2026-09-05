@@ -59,8 +59,15 @@ export function parseWordsJson(content: string): RecognizedWord[] {
     for (const item of list) {
       const w = typeof item === 'string' ? item : item?.word;
       if (typeof w !== 'string') continue;
-      const cleaned = w.trim().toLowerCase().replace(/[^a-z'-]/g, '');
-      if (cleaned.length < 2 || cleaned.length > 30) continue;
+      const cleaned = w
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z\s'-]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (cleaned.length < 2 || cleaned.length > 40) continue;
+      const letterCount = (cleaned.match(/[a-z]/g) ?? []).length;
+      if (letterCount < 2) continue;
       if (seen.has(cleaned)) continue;
       seen.add(cleaned);
       result.push({ word: cleaned, pos: typeof item === 'object' ? item?.pos : undefined });
@@ -77,7 +84,7 @@ export async function extractWordsFromImage(base64: string, mime: string): Promi
     {
       role: 'system',
       content:
-        '你是专业的英文 OCR 与词汇提取助手。你需要从图片中精准识别所有英文单词，只输出 JSON，不要输出任何其他文字。',
+        '你是专业的英文 OCR 与词汇提取助手，尤其擅长识别多栏排版的英文词汇列表。只输出 JSON，不要输出任何其他文字。',
     },
     {
       role: 'user',
@@ -85,21 +92,22 @@ export async function extractWordsFromImage(base64: string, mime: string): Promi
         {
           type: 'text',
           text:
-            '请仔细识别图片中出现的所有英文单词（包括印刷体与手写体），要求：' +
-            '1) 保留图片中单词的原始拼写，宁可整词也不要漏词；' +
-            '2) 去重并忽略纯数字、单个字母与 URL；' +
-            '3) 单词统一小写；' +
-            '4) 为每个单词标注最常见词性（n./v./adj./adv./prep. 之一，不确定则省略）；' +
-            '5) 按图片中出现顺序输出。' +
-            '只输出 JSON：{"words":[{"word":"example","pos":"n."}]}',
+            '请精准识别图片中的英文词汇（图片很可能是多栏排版的单词/短语列表，也可能是文章或笔记）。要求：' +
+            '1) 逐栏逐条完整识别，从左到右、自上而下，不遗漏任何条目，列表可能包含 200 个以上条目；' +
+            '2) 多词短语（如 ocean energy、fossil fuels、ocean thermal energy conversion）必须完整保留为一个条目，禁止拆分或合并；' +
+            '3) 保留图片中的原始拼写，宁可整词也不要漏词；条目统一小写；' +
+            '4) 忽略纯数字条目、页码、装饰符号与 URL；' +
+            '5) 若条目自带词性标注（如 n. v. adj.）则输出 pos 字段，否则省略；' +
+            '6) 完整输出全部条目（最多 300 个），禁止中途截断、省略或输出"其余同理"之类总结。' +
+            '只输出 JSON：{"words":[{"word":"ocean energy"},{"word":"fossil fuels"}]}',
         },
         { type: 'image_url', image_url: { url: `data:${mime};base64,${base64}`, detail: 'high' } },
       ],
     },
   ];
   const response = await llm.invoke(messages, {
-    model: 'doubao-seed-2-0-lite-260215',
-    temperature: 0.1,
+    model: 'doubao-seed-2-0-pro-260215',
+    temperature: 0.05,
   });
   return parseWordsJson(response.content);
 }
@@ -119,7 +127,7 @@ export async function extractWordsFromText(text: string): Promise<RecognizedWord
         '以下是一份英文学习材料的内容。请提取其中值得背诵学习的英文单词，要求：' +
         '1) 优先选取实义词汇（名词、动词、形容词、副词），忽略 a/the/is/of 等常见虚词与基础高频词；' +
         '2) 去重并统一小写；' +
-        '3) 最多输出 30 个，按原文出现顺序；' +
+        '3) 最多输出 200 个，按原文出现顺序；' +
         '4) 为每个单词标注最常见词性（n./v./adj./adv./prep. 之一，不确定则省略）。' +
         '只输出 JSON：{"words":[{"word":"example","pos":"n."}]}\n\n材料内容：\n' +
         trimmed,
@@ -159,7 +167,7 @@ export function extractWordsLocally(text: string): RecognizedWord[] {
     if (clean.length < 3 || seen.has(clean) || LOCAL_STOP_WORDS.has(clean)) continue;
     seen.add(clean);
     words.push({ word: clean });
-    if (words.length >= 30) break;
+    if (words.length >= 250) break;
   }
   return words;
 }

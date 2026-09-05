@@ -59,8 +59,9 @@ export async function POST(request: NextRequest) {
     // 规范化 + 去重
     const normalized = new Map<string, WordItem>();
     for (const item of items) {
-      const word = typeof item.word === 'string' ? item.word.trim().toLowerCase().replace(/[^a-z'-]/g, '') : '';
-      if (word.length < 1 || word.length > 30 || normalized.has(word)) continue;
+      // 保留空格与连字符，支持多词短语（如 ocean energy）
+      const word = typeof item.word === 'string' ? item.word.trim().toLowerCase().replace(/[^a-z\s'-]/g, '').replace(/\s+/g, ' ').trim() : '';
+      if (word.length < 1 || word.length > 40 || normalized.has(word)) continue;
       normalized.set(word, { ...item, word });
     }
     if (normalized.size === 0) {
@@ -82,7 +83,7 @@ export async function POST(request: NextRequest) {
         word: item.word,
         pos: item.pos?.slice(0, 20) ?? null,
         translation: item.translation?.slice(0, 200) || null,
-        translation_source: item.translation_source === 'search' ? 'search' : 'upload',
+        translation_source: ['search', 'manual'].includes(item.translation_source ?? '') ? (item.translation_source as string) : 'upload',
         source_file: item.source_file?.slice(0, 250) ?? null,
         batch_id: (item.batchId ?? body.batchId)?.slice(0, 36) ?? null,
         status: 'pending',

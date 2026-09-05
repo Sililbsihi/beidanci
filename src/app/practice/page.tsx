@@ -298,7 +298,11 @@ export default function PracticePage() {
               {/* 逐字母键入区（大格子果冻键入，键入的字母一格一格显示） */}
               <div className="mt-9 max-w-2xl mx-auto relative cursor-text" onClick={() => inputRef.current?.focus()}>
                 <div className="flex flex-wrap justify-center gap-2.5 md:gap-3">
-                  {letters.map((_, index) => {
+                  {letters.map((char, index) => {
+                    if (char === ' ') {
+                      // 词间空格：渲染为间隔，无需键入（自动填充）
+                      return <div key={index} className="w-3 md:w-4 shrink-0" aria-hidden="true" />;
+                    }
                     if (index < typed.length) {
                       return (
                         <div
@@ -335,7 +339,14 @@ export default function PracticePage() {
                   ref={inputRef}
                   value={typed}
                   onChange={(e) => {
-                    const value = e.target.value.toLowerCase().replace(/[^a-z'-]/g, '').slice(0, letters.length);
+                    let value = e.target.value.toLowerCase().replace(/[^a-z\s'-]/g, '').replace(/\s+/g, ' ');
+                    // 短语中的空格自动填充，用户只需键入字母
+                    if (current) {
+                      while (value.length < letters.length && current.word[value.length] === ' ') {
+                        value += ' ';
+                      }
+                    }
+                    value = value.slice(0, letters.length);
                     setTyped(value);
                     if (feedback.type === 'error') setFeedback({ type: 'idle', message: '' });
                   }}
@@ -353,7 +364,7 @@ export default function PracticePage() {
               {/* 键入状态行 */}
               <div className="mt-5 flex items-center justify-center gap-6 flex-wrap">
                 <p className="text-xs text-on-surface-variant">
-                  已抄写 {typed.length} / {letters.length} 个字母
+                  已抄写 {typed.replace(/ /g, '').length} / {letters.filter((c) => c !== ' ').length} 个字母
                 </p>
                 <p
                   className={`text-xs font-medium inline-flex items-center gap-1 ${

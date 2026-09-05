@@ -4,7 +4,7 @@ import { useCallback, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   CloudUpload, Image as ImageIcon, FileText, File as FileIcon, Presentation, Table2,
-  ShieldCheck, Loader2, Search, Pencil, Trash2, Sparkles, CircleCheck, CircleAlert,
+  ShieldCheck, Loader2, Search, Pencil, Trash2, Sparkles, CircleCheck, CircleAlert, ListPlus,
 } from 'lucide-react';
 
 interface UploadTask {
@@ -21,7 +21,7 @@ interface WordDraft {
   word: string;
   pos?: string;
   translation: string;
-  translationSource: 'upload' | 'search' | 'none';
+  translationSource: 'upload' | 'search' | 'manual' | 'none';
   sourceFile?: string;
   batchId?: string;
   searching?: boolean;
@@ -46,6 +46,7 @@ export default function HomePage() {
   const [tasks, setTasks] = useState<UploadTask[]>([]);
   const [words, setWords] = useState<WordDraft[]>([]);
   const [busy, setBusy] = useState(false);
+  const [manualInput, setManualInput] = useState('');
   const [toast, setToast] = useState('');
 
   const showToast = useCallback((message: string) => {
@@ -190,6 +191,40 @@ export default function HomePage() {
       showToast(error instanceof Error ? error.message : '加入背诵失败');
     }
   }, [router, showToast, words]);
+
+  /** 手动添加单词（支持换行 / 逗号 / 分号分隔批量输入，可补充识别遗漏） */
+  const handleManualAdd = useCallback(async () => {
+    const parts = manualInput
+      .split(/[\n,，;；]+/)
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    const cleaned = Array.from(new Set(parts))
+      .map((s) => s.replace(/[^a-z\s'-]/g, '').replace(/\s+/g, ' ').trim())
+      .filter((s) => s.length >= 2 && (s.match(/[a-z]/g) ?? []).length >= 2);
+    if (cleaned.length === 0) {
+      showToast('请输入有效的英文单词或词组');
+      return;
+    }
+    const existing = new Set(words.map((w) => w.word));
+    const fresh = cleaned.filter((w) => !existing.has(w));
+    if (fresh.length === 0) {
+      showToast('输入的单词都已在列表中');
+      setManualInput('');
+      return;
+    }
+    setWords((prev) => [
+      ...prev,
+      ...fresh.map((word) => ({
+        word,
+        translation: '',
+        translationSource: 'manual' as const,
+        sourceFile: '手动添加',
+      })),
+    ]);
+    setManualInput('');
+    showToast(`已添加 ${fresh.length} 个单词，正在匹配释义…`);
+    await fillTranslations();
+  }, [manualInput, words, fillTranslations, showToast]);
 
   const saveWordEdit = (index: number, patch: Partial<WordDraft>) => {
     setWords((prev) => prev.map((w, i) => (i === index ? { ...w, ...patch, editing: false } : w)));
@@ -408,6 +443,32 @@ export default function HomePage() {
                 </div>
               </div>
             ))}
+          </div>
+
+          {/* 手动添加入口（补充识别遗漏的单词） */}
+          <div className="mt-5 pt-4 border-t border-outline-variant/70">
+            <label htmlFor="manual-add-input" className="inline-flex items-center gap-1.5 text-sm font-medium text-on-surface-variant">
+              <ListPlus className="w-4 h-4 text-jelly-green" />
+              漏了词？手动添加（换行 / 逗号 / 分号分隔，可批量）
+            </label>
+            <div className="mt-2.5 flex flex-col sm:flex-row gap-2.5">
+              <textarea
+                id="manual-add-input"
+                value={manualInput}
+                onChange={(e) => setManualInput(e.target.value)}
+                placeholder={'每行一个单词或词组，例如：\ntidal energy, breakwater\nlagoon scheme'}
+                rows={3}
+                className="flex-1 bg-surface-container border-none rounded-xl px-4 py-3 text-sm text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none focus:ring-2 focus:ring-primary/30 transition-shadow resize-none"
+              />
+              <button
+                className="self-end inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-jelly-green text-white text-sm font-semibold shadow-card hover:shadow-float hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:pointer-events-none"
+                onClick={() => void handleManualAdd()}
+                disabled={busy || !manualInput.trim()}
+              >
+                <ListPlus className="w-4 h-4" />
+                添加
+              </button>
+            </div>
           </div>
         </section>
       )}
