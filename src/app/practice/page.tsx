@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Target, Info, PencilLine, Lightbulb, SkipForward, CircleCheck, Trash2, PartyPopper, BookOpen,
+  Target, Info, PencilLine, Lightbulb, SkipForward, CircleCheck, Trash2, PartyPopper, BookOpen, Repeat, FileUp,
 } from 'lucide-react';
 
 interface WordRow {
@@ -48,6 +48,7 @@ export default function PracticePage() {
   const [shaking, setShaking] = useState(false);
   const [cleanedFiles, setCleanedFiles] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [roundAllDone, setRoundAllDone] = useState(false);
 
   const current = useMemo(() => words.find((w) => w.id === currentId) ?? null, [words, currentId]);
 
@@ -64,6 +65,8 @@ export default function PracticePage() {
         const firstActive = list.find((w) => w.correct_round > 0 || w.recite_count === 0);
         return firstActive?.id ?? list[0]?.id ?? null;
       });
+      // 进入页面时若所有单词都已背完至少一轮，直接展示完成态
+      setRoundAllDone(list.length > 0 && list.every((w) => w.recite_count >= 1 && w.correct_round === 0));
     } catch {
       // 加载失败时保持空队列
     } finally {
@@ -110,57 +113,84 @@ export default function PracticePage() {
     setWords((prev) => prev.map((w) => (w.id === id ? { ...w, ...patch } : w)));
   };
 
-  /** 提交本轮照抄结果 */
-  const submitTyped = useCallback(async () => {
-    if (!current || !typed) return;
+  /** 挑选下一个该背的单词：进行中的 > 从未背过的 > null（全部完成本轮） */
+  const pickNextWord = (list: WordRow[], excludeId: number | null): WordRow | null => {
+    const practicing = list.find((w) => w.correct_round > 0 && w.id !== excludeId);
+    if (practicing) return practicing;
+    const fresh = list.find((w) => w.recite_count === 0 && w.correct_round === 0 && w.id !== excludeId);
+    if (fresh) return fresh;
+    return null;
+  };
+
+  /** 后台静默持久化拼写结果（乐观更新后调用，返回权威数据用于校正） */
+  const persistType = useCallback(async (wordId: number, input: string) => {
     try {
       const res = await fetch('/api/practice/type', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ wordId: current.id, input: typed }),
+        body: JSON.stringify({ wordId, input }),
       });
+      if (!res.ok) return;
       const data = (await res.json()) as TypeResult;
-      if (!res.ok) throw new Error(data.error ?? '校验失败');
-
-      if (!data.correct) {
-        // 拼写错误：果冻抖动 + 本轮 3 遍进度清零，重新拼写
-        setShaking(true);
-        window.setTimeout(() => setShaking(false), 550);
-        setFeedback({ type: 'error', message: '拼写错误，重新拼写 3 遍直至全部正确' });
-        patchWord(current.id, { correct_round: 0, status: 'practicing' });
-        setTyped('');
-        inputRef.current?.focus();
-        return;
-      }
-
-      patchWord(current.id, {
+      if (typeof data.correct !== 'boolean') return;
+      patchWord(wordId, {
         correct_round: data.correct_round,
         recite_count: data.recite_count,
         total_typed: data.total_typed,
         status: data.completed_round ? 'done' : 'practicing',
       });
-      setTyped('');
-
-      if (data.completed_round) {
-        setFeedback({ type: 'round-done', message: `已背诵 1 遍 · 累计 ${data.recite_count} 次` });
-        // 完成一轮后短暂庆祝，自动切到下一个未完成的单词
-        window.setTimeout(() => {
-          setStats((prev) => ({ ...prev, done: Math.min(prev.done + 1, prev.total) }));
-          setFeedback({ type: 'idle', message: '' });
-          setWords((prev) => {
-            const next = prev.find((w) => w.correct_round === 0 && (w.recite_count === 0 || w.id !== current.id) && w.id !== current.id);
-            if (next) setCurrentId(next.id);
-            return prev;
-          });
-        }, 1300);
-      } else {
-        setFeedback({ type: 'correct', message: `正确！继续第 ${data.correct_round + 1} 遍` });
-        inputRef.current?.focus();
-      }
-    } catch (error) {
-      setFeedback({ type: 'error', message: error instanceof Error ? error.message : '校验失败' });
+    } catch {
+      // 持久化失败静默：本地已乐观推进，下次进入页面由服务端数据校正
     }
-  }, [current, typed]);
+  }, []);
+
+  /** 提交本轮照抄结果：本地即时校验 + 乐观更新（0 等待），后台异步持久化 */
+  const submitTyped = useCallback(() => {
+    if (!current || !typed) return;
+    const wordId = current.id;
+
+    // 本地即时校验，拼写错误立即反馈（不等待网络）
+    if (typed.trim().toLowerCase() !== current.word.toLowerCase()) {
+      setShaking(true);
+      window.setTimeout(() => setShaking(false), 550);
+      setFeedback({ type: 'error', message: '拼写错误，重新拼写 3 遍直至全部正确' });
+      patchWord(wordId, { correct_round: 0, status: 'practicing' });
+      setTyped('');
+      inputRef.current?.focus();
+      void persistType(wordId, typed);
+      return;
+    }
+
+    // 正确：本地乐观计算进度，UI 立即响应
+    const nextRound = current.correct_round + 1;
+    const completedRound = nextRound >= ROUNDS_PER_RECITE;
+    patchWord(wordId, {
+      correct_round: completedRound ? 0 : nextRound,
+      recite_count: completedRound ? current.recite_count + 1 : current.recite_count,
+      total_typed: current.total_typed + 1,
+      status: completedRound ? 'done' : 'practicing',
+    });
+    setTyped('');
+    void persistType(wordId, typed);
+
+    if (completedRound) {
+      setFeedback({ type: 'round-done', message: `已背诵 1 遍 · 累计 ${current.recite_count + 1} 次` });
+      setStats((prev) => ({ ...prev, done: Math.min(prev.done + 1, prev.total) }));
+      // 完成一轮后短暂庆祝，自动切到下一个未背过的单词（不会循环回已背词）
+      window.setTimeout(() => {
+        setFeedback({ type: 'idle', message: '' });
+        setWords((prev) => {
+          const next = pickNextWord(prev, wordId);
+          if (next) setCurrentId(next.id);
+          else setRoundAllDone(true);
+          return prev;
+        });
+      }, 1200);
+    } else {
+      setFeedback({ type: 'correct', message: `正确！继续第 ${nextRound + 1} 遍` });
+      inputRef.current?.focus();
+    }
+  }, [current, typed, persistType]);
 
   const handleHint = () => {
     if (!current) return;
@@ -170,10 +200,11 @@ export default function PracticePage() {
 
   const handleSkip = () => {
     if (words.length === 0) return;
-    const index = words.findIndex((w) => w.id === currentId);
-    const next = words[(index + 1) % words.length];
+    const next = pickNextWord(words, currentId);
+    if (!next) return;
     setTyped('');
     setFeedback({ type: 'idle', message: '' });
+    setRoundAllDone(false);
     setCurrentId(next.id);
   };
 
@@ -255,7 +286,41 @@ export default function PracticePage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
         {/* 左列：核心单词卡 */}
         <div className="lg:col-span-2">
-          {current && (
+          {roundAllDone && (
+            <section className="bg-surface/80 backdrop-blur-md rounded-2xl shadow-float p-10 relative overflow-hidden text-center animate-jelly-pop">
+              <div className={`absolute top-0 left-0 right-0 h-1 ${RAINBOW_BAR} opacity-70`} />
+              <div className="w-16 h-16 mx-auto rounded-2xl bg-primary/12 flex items-center justify-center">
+                <PartyPopper className="w-8 h-8 text-primary" />
+              </div>
+              <h2 className="mt-5 font-display font-bold text-2xl text-on-surface">本批单词已全部完成一轮背诵</h2>
+              <p className="mt-2 text-sm text-on-surface-variant">
+                共 {words.length} 个单词 · 上传的临时文件已自动清理。可再背一轮巩固记忆，次数会累加。
+              </p>
+              <div className={`mt-5 mx-auto h-[3px] w-40 rounded-full ${RAINBOW_BAR} opacity-70`} />
+              <div className="mt-7 flex items-center justify-center gap-3 flex-wrap">
+                <button
+                  className="bg-primary text-white border-none px-5 py-2.5 rounded-full text-sm font-medium hover:bg-primary/90 active:scale-[0.98] transition-all inline-flex items-center gap-2"
+                  onClick={() => {
+                    setRoundAllDone(false);
+                    setTyped('');
+                    setFeedback({ type: 'idle', message: '' });
+                    setCurrentId(words[0]?.id ?? null);
+                  }}
+                >
+                  <Repeat className="w-4 h-4" />
+                  再背一轮（累加次数）
+                </button>
+                <button
+                  className="bg-surface-container text-on-surface border-none px-5 py-2.5 rounded-full text-sm font-medium hover:bg-surface-container-high active:scale-[0.98] transition-all inline-flex items-center gap-2"
+                  onClick={goUpload}
+                >
+                  <FileUp className="w-4 h-4 text-primary" />
+                  上传新单词
+                </button>
+              </div>
+            </section>
+          )}
+          {!roundAllDone && current && (
             <section
               className={`bg-surface/80 backdrop-blur-md rounded-2xl shadow-float p-6 md:p-8 relative overflow-hidden ${
                 shaking ? 'animate-jelly-shake' : feedback.type === 'round-done' ? 'animate-jelly-pop' : ''
@@ -433,6 +498,7 @@ export default function PracticePage() {
                 <button
                   key={w.id}
                   onClick={() => {
+                    setRoundAllDone(false);
                     setCurrentId(w.id);
                     setTyped('');
                     setFeedback({ type: 'idle', message: '' });

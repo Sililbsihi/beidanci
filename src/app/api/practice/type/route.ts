@@ -57,34 +57,28 @@ export async function POST(request: NextRequest) {
     const newRound = word.correct_round + 1;
     const completedRound = newRound >= ROUNDS_PER_RECITE;
 
-    if (completedRound) {
-      const { error: updateError } = await client
-        .from('words')
-        .update({
+    const updatePayload = completedRound
+      ? {
           correct_round: 0,
           recite_count: word.recite_count + 1,
           total_typed: word.total_typed + 1,
           status: 'done',
           recited_at: new Date().toISOString(),
-        })
-        .eq('id', word.id);
-      if (updateError) throw new Error(`更新背诵进度失败: ${updateError.message}`);
-    } else {
-      const { error: updateError } = await client
-        .from('words')
-        .update({ correct_round: newRound, total_typed: word.total_typed + 1, status: 'practicing' })
-        .eq('id', word.id);
-      if (updateError) throw new Error(`更新拼写进度失败: ${updateError.message}`);
-    }
+        }
+      : { correct_round: newRound, total_typed: word.total_typed + 1, status: 'practicing' };
 
-    // 写入背诵流水（round_index=3 代表完成一轮背诵）
-    const { error: recordError } = await client.from('practice_records').insert({
-      word_id: word.id,
-      word: word.word,
-      round_index: newRound,
-      session_no: word.recite_count + 1,
-    });
-    if (recordError) throw new Error(`写入背诵记录失败: ${recordError.message}`);
+    // 单词进度更新与背诵流水写入并行执行（减少一次串行往返，加速回车响应）
+    const [updateResult, recordResult] = await Promise.all([
+      client.from('words').update(updatePayload).eq('id', word.id),
+      client.from('practice_records').insert({
+        word_id: word.id,
+        word: word.word,
+        round_index: newRound,
+        session_no: word.recite_count + 1,
+      }),
+    ]);
+    if (updateResult.error) throw new Error(`更新拼写进度失败: ${updateResult.error.message}`);
+    if (recordResult.error) throw new Error(`写入背诵记录失败: ${recordResult.error.message}`);
 
     return NextResponse.json({
       correct: true,

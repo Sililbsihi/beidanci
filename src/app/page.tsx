@@ -58,7 +58,7 @@ export default function HomePage() {
     setTasks((prev) => prev.map((t) => (t.key === key ? { ...t, ...patch } : t)));
   }, []);
 
-  /** 无释义单词批量搜索中文释义 */
+  /** 无释义单词批量搜索中文释义：分批并发请求 + 渐进更新（每批完成立即展示，无需等全部） */
   const fillTranslations = useCallback(async () => {
     let missing: string[] = [];
     setWords((prev) => {
@@ -67,26 +67,43 @@ export default function HomePage() {
     });
     if (missing.length === 0) return;
 
-    try {
-      const res = await fetch('/api/translate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ words: missing }),
-      });
-      const data = (await res.json()) as { translations?: Array<{ word: string; translation: string }> };
-      if (!res.ok) throw new Error(data instanceof Object ? '释义匹配失败' : '释义匹配失败');
-      const hits = data.translations ?? [];
-      setWords((prev) =>
-        prev.map((w) => {
-          const hit = hits.find((t) => t.word === w.word);
-          if (hit?.translation) return { ...w, translation: hit.translation, translationSource: 'search', searching: false };
-          return { ...w, searching: false };
-        }),
-      );
-    } catch {
-      setWords((prev) => prev.map((w) => ({ ...w, searching: false })));
-      showToast('部分单词释义匹配失败，可手动补充');
+    let failedBatch = false;
+    const BATCH_SIZE = 8;
+    const batches: string[][] = [];
+    for (let i = 0; i < missing.length; i += BATCH_SIZE) {
+      batches.push(missing.slice(i, i + BATCH_SIZE));
     }
+
+    await Promise.all(
+      batches.map(async (batch) => {
+        try {
+          const res = await fetch('/api/translate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ words: batch }),
+          });
+          if (!res.ok) {
+            failedBatch = true;
+            return;
+          }
+          const data = (await res.json()) as { translations?: Array<{ word: string; translation: string }> };
+          const hits = data.translations ?? [];
+          setWords((prev) =>
+            prev.map((w) => {
+              const hit = hits.find((t) => t.word === w.word);
+              if (hit?.translation) return { ...w, translation: hit.translation, translationSource: 'search', searching: false };
+              if (hit) return { ...w, searching: false };
+              return w;
+            }),
+          );
+        } catch {
+          failedBatch = true;
+        }
+      }),
+    );
+    // 兜底：清掉剩余的 searching 态
+    setWords((prev) => prev.map((w) => (w.searching ? { ...w, searching: false } : w)));
+    if (failedBatch) showToast('部分单词释义匹配失败，可手动补充');
   }, [showToast]);
 
   /** 上传并识别：图片走多模态 OCR，文档走解析选词 */
