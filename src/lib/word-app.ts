@@ -62,7 +62,7 @@ export function parseWordsJson(content: string): RecognizedWord[] {
       const cleaned = w
         .trim()
         .toLowerCase()
-        .replace(/[^a-z\s'-]/g, '')
+        .replace(/[^a-z0-9\s'-]/g, '')
         .replace(/\s+/g, ' ')
         .trim();
       if (cleaned.length < 2 || cleaned.length > 40) continue;
@@ -78,13 +78,13 @@ export function parseWordsJson(content: string): RecognizedWord[] {
   }
 }
 
-/** 图片识别：多模态 LLM 精准提取图片中的英文单词 */
-export async function extractWordsFromImage(base64: string, mime: string): Promise<RecognizedWord[]> {
+/** 词表图片 OCR 单次调用：紧凑字符串数组输出，降低长列表 token 消耗与解析断裂风险 */
+async function imageOcrOnce(dataUri: string, partLabel: string): Promise<string[]> {
   const messages: Message[] = [
     {
       role: 'system',
       content:
-        '你是专业的英文 OCR 与词汇提取助手，尤其擅长识别多栏排版的英文词汇列表。只输出 JSON，不要输出任何其他文字。',
+        '你是专业的英文 OCR 词汇提取助手，尤其擅长识别多栏排版的英文词汇列表。只输出 JSON 数组，不要输出任何其他文字。',
     },
     {
       role: 'user',
@@ -92,16 +92,15 @@ export async function extractWordsFromImage(base64: string, mime: string): Promi
         {
           type: 'text',
           text:
-            '请精准识别图片中的英文词汇（图片很可能是多栏排版的单词/短语列表，也可能是文章或笔记）。要求：' +
-            '1) 逐栏逐条完整识别，从左到右、自上而下，不遗漏任何条目，列表可能包含 200 个以上条目；' +
-            '2) 多词短语（如 ocean energy、fossil fuels、ocean thermal energy conversion）必须完整保留为一个条目，禁止拆分或合并；' +
-            '3) 保留图片中的原始拼写，宁可整词也不要漏词；条目统一小写；' +
-            '4) 忽略纯数字条目、页码、装饰符号与 URL；' +
-            '5) 若条目自带词性标注（如 n. v. adj.）则输出 pos 字段，否则省略；' +
-            '6) 完整输出全部条目（最多 300 个），禁止中途截断、省略或输出"其余同理"之类总结。' +
-            '只输出 JSON：{"words":[{"word":"ocean energy"},{"word":"fossil fuels"}]}',
+            `这是${partLabel}英文词汇列表图片（常见为 3-4 栏排版）。请逐栏逐条精准识别：` +
+            '1) 从左到右、自上而下，不遗漏任何条目；' +
+            '2) 多词短语（如 ocean energy、4 times、fossil fuels）必须整体保留为一个条目；' +
+            '3) 数字开头的短语（如 4 times、150,000 homes）保留数字；' +
+            '4) 条目统一小写，保留原始拼写，宁多勿漏；' +
+            '5) 忽略页码、装饰符号与纯数字条目。' +
+            '只输出 JSON 字符串数组（不要对象、不要词性）：["apple","ocean energy","4 times"]',
         },
-        { type: 'image_url', image_url: { url: `data:${mime};base64,${base64}`, detail: 'high' } },
+        { type: 'image_url', image_url: { url: dataUri, detail: 'high' } },
       ],
     },
   ];
@@ -109,7 +108,98 @@ export async function extractWordsFromImage(base64: string, mime: string): Promi
     model: 'doubao-seed-2-0-pro-260215',
     temperature: 0.05,
   });
-  return parseWordsJson(response.content);
+  return parseWordsArray(response.content);
+}
+
+/** 解析紧凑字符串数组（兼容对象数组与裸文本兜底） */
+function parseWordsArray(content: string): string[] {
+  try {
+    const text = String(content ?? '');
+    const start = text.indexOf('[');
+    const end = text.lastIndexOf(']');
+    if (start === -1 || end === -1 || end <= start) return [];
+    const parsed: unknown = JSON.parse(text.slice(start, end + 1));
+    if (!Array.isArray(parsed)) return [];
+    const out: string[] = [];
+    for (const item of parsed) {
+      if (typeof item === 'string') out.push(item);
+      else if (item && typeof item === 'object' && typeof (item as { word?: unknown }).word === 'string') {
+        out.push((item as { word: string }).word);
+      }
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/** 清洗单个词条：保留字母/数字/空格/连字符/撇号；至少 2 个字母；过滤纯数字 */
+function sanitizeWord(raw: string): string {
+  const cleaned = raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s'-]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (cleaned.length < 2 || cleaned.length > 40) return '';
+  const letterCount = (cleaned.match(/[a-z]/g) ?? []).length;
+  if (letterCount < 2) return '';
+  return cleaned;
+}
+
+/** 图片识别：整图 + 上下分块三路并行 OCR，并集合并去重 + 1.5x 上采样，最大化密集词表的识别完整率 */
+export async function extractWordsFromImage(base64: string, mime: string): Promise<RecognizedWord[]> {
+  const seen = new Set<string>();
+  const words: RecognizedWord[] = [];
+  const addWords = (items: string[]) => {
+    for (const raw of items) {
+      const cleaned = sanitizeWord(raw);
+      if (!cleaned || seen.has(cleaned)) continue;
+      seen.add(cleaned);
+      words.push({ word: cleaned });
+    }
+  };
+
+  // 生成识别分块：整图 + 上下两块（14% 重叠避免切断行）；统一 1.5x 上采样增强小字清晰度（原图较宽则跳过放大）
+  const chunks: { dataUri: string; label: string }[] = [];
+  try {
+    const { default: sharp } = await import('sharp');
+    const buffer = Buffer.from(base64, 'base64');
+    const meta = await sharp(buffer).metadata();
+    const targetWidth = meta.width && meta.width < 1200 ? Math.round(meta.width * 1.5) : meta.width;
+    const upscale = async (buf: Buffer) => {
+      const png = await sharp(buf).png().toBuffer();
+      const resized = targetWidth && targetWidth !== meta.width ? await sharp(png).resize({ width: targetWidth }).png().toBuffer() : png;
+      return `data:image/png;base64,${resized.toString('base64')}`;
+    };
+    chunks.push({ dataUri: await upscale(buffer), label: '整图' });
+    if (meta.height && meta.height >= 480 && meta.width) {
+      const cut = Math.round(meta.height * 0.57);
+      const overlap = Math.round(meta.height * 0.14);
+      const topBuf = await sharp(buffer).extract({ left: 0, top: 0, width: meta.width, height: cut + overlap }).png().toBuffer();
+      const bottomBuf = await sharp(buffer)
+        .extract({ left: 0, top: Math.max(0, cut - overlap), width: meta.width, height: meta.height - (cut - overlap) })
+        .png()
+        .toBuffer();
+      chunks.push({ dataUri: await upscale(topBuf), label: '上半部分' });
+      chunks.push({ dataUri: await upscale(bottomBuf), label: '下半部分' });
+    }
+  } catch (error) {
+    console.warn('[recognize] 图片分块失败，仅整图识别', error);
+    if (chunks.length === 0) chunks.push({ dataUri: `data:${mime};base64,${base64}`, label: '整图' });
+  }
+
+  // 三路并行识别，并集合并去重
+  const results = await Promise.allSettled(chunks.map((c) => imageOcrOnce(c.dataUri, c.label)));
+  results.forEach((r, i) => {
+    if (r.status === 'fulfilled') addWords(r.value);
+    else console.error(`[recognize] ${chunks[i].label} OCR 失败`, r.reason);
+  });
+
+  if (words.length === 0) {
+    throw new Error('未能从图片中识别出英文词条，请确认图片清晰且包含英文词汇');
+  }
+  return words;
 }
 
 /** 文本选词：从文档文本中筛选值得学习的英文单词（LLM 优先，失败降级为本地分词） */

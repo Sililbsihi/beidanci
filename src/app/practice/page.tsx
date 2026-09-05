@@ -339,7 +339,7 @@ export default function PracticePage() {
                   ref={inputRef}
                   value={typed}
                   onChange={(e) => {
-                    let value = e.target.value.toLowerCase().replace(/[^a-z\s'-]/g, '').replace(/\s+/g, ' ');
+                    let value = e.target.value.toLowerCase().replace(/[^a-z0-9\s'-]/g, '').replace(/\s+/g, ' ');
                     // 短语中的空格自动填充，用户只需键入字母
                     if (current) {
                       while (value.length < letters.length && current.word[value.length] === ' ') {

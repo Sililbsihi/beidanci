@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
     const normalized = new Map<string, WordItem>();
     for (const item of items) {
       // 保留空格与连字符，支持多词短语（如 ocean energy）
-      const word = typeof item.word === 'string' ? item.word.trim().toLowerCase().replace(/[^a-z\s'-]/g, '').replace(/\s+/g, ' ').trim() : '';
+      const word = typeof item.word === 'string' ? item.word.trim().toLowerCase().replace(/[^a-z0-9\s'-]/g, '').replace(/\s+/g, ' ').trim() : '';
       if (word.length < 1 || word.length > 40 || normalized.has(word)) continue;
       normalized.set(word, { ...item, word });
     }

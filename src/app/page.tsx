@@ -199,7 +199,7 @@ export default function HomePage() {
       .map((s) => s.trim().toLowerCase())
       .filter(Boolean);
     const cleaned = Array.from(new Set(parts))
-      .map((s) => s.replace(/[^a-z\s'-]/g, '').replace(/\s+/g, ' ').trim())
+      .map((s) => s.replace(/[^a-z0-9\s'-]/g, '').replace(/\s+/g, ' ').trim())
       .filter((s) => s.length >= 2 && (s.match(/[a-z]/g) ?? []).length >= 2);
     if (cleaned.length === 0) {
       showToast('请输入有效的英文单词或词组');
