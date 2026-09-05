@@ -41,11 +41,12 @@ export default function PracticePage() {
   const [stats, setStats] = useState({ total: 0, done: 0 });
   const [currentId, setCurrentId] = useState<number | null>(null);
   const [typed, setTyped] = useState('');
-  const [feedback, setFeedback] = useState<{ type: 'idle' | 'correct' | 'error' | 'round-done'; message: string }>({
+  const [feedback, setFeedback] = useState<{ type: 'idle' | 'correct' | 'error'; message: string }>({
     type: 'idle',
     message: '',
   });
   const [shaking, setShaking] = useState(false);
+  const [enterPop, setEnterPop] = useState(false);
   const [cleanedFiles, setCleanedFiles] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [roundAllDone, setRoundAllDone] = useState(false);
@@ -78,9 +79,13 @@ export default function PracticePage() {
     void loadQueue();
   }, [loadQueue]);
 
-  /** 切换单词后聚焦键入区 */
+  /** 切换单词后聚焦键入区，并播放轻微果冻弹入动画（拼错的震动与此互斥） */
   useEffect(() => {
+    if (!currentId) return;
     inputRef.current?.focus();
+    setEnterPop(true);
+    const timer = window.setTimeout(() => setEnterPop(false), 450);
+    return () => window.clearTimeout(timer);
   }, [currentId]);
 
   /** 批次内全部单词完成至少一轮背诵后，自动清理临时文件 */
@@ -174,18 +179,15 @@ export default function PracticePage() {
     void persistType(wordId, typed);
 
     if (completedRound) {
-      setFeedback({ type: 'round-done', message: `已背诵 1 遍 · 累计 ${current.recite_count + 1} 次` });
       setStats((prev) => ({ ...prev, done: Math.min(prev.done + 1, prev.total) }));
-      // 完成一轮后短暂庆祝，自动切到下一个未背过的单词（不会循环回已背词）
-      window.setTimeout(() => {
-        setFeedback({ type: 'idle', message: '' });
-        setWords((prev) => {
-          const next = pickNextWord(prev, wordId);
-          if (next) setCurrentId(next.id);
-          else setRoundAllDone(true);
-          return prev;
-        });
-      }, 1200);
+      // 完成一轮：立即切到下一个未背过的单词（不循环回已背词），无等待
+      setFeedback({ type: 'idle', message: '' });
+      setWords((prev) => {
+        const next = pickNextWord(prev, wordId);
+        if (next) setCurrentId(next.id);
+        else setRoundAllDone(true);
+        return prev;
+      });
     } else {
       setFeedback({ type: 'correct', message: `正确！继续第 ${nextRound + 1} 遍` });
       inputRef.current?.focus();
@@ -323,7 +325,7 @@ export default function PracticePage() {
           {!roundAllDone && current && (
             <section
               className={`bg-surface/80 backdrop-blur-md rounded-2xl shadow-float p-6 md:p-8 relative overflow-hidden ${
-                shaking ? 'animate-jelly-shake' : feedback.type === 'round-done' ? 'animate-jelly-pop' : ''
+                shaking ? 'animate-jelly-shake' : enterPop ? 'animate-jelly-pop' : ''
               }`}
             >
               <div className={`absolute top-0 left-0 right-0 h-1 ${RAINBOW_BAR} opacity-70`} />
@@ -433,18 +435,10 @@ export default function PracticePage() {
                 </p>
                 <p
                   className={`text-xs font-medium inline-flex items-center gap-1 ${
-                    feedback.type === 'error'
-                      ? 'text-error'
-                      : feedback.type === 'round-done'
-                        ? 'text-success'
-                        : 'text-primary'
+                    feedback.type === 'error' ? 'text-error' : 'text-primary'
                   }`}
                 >
-                  {feedback.type === 'round-done' ? (
-                    <CircleCheck className="w-3.5 h-3.5" />
-                  ) : (
-                    <PencilLine className="w-3.5 h-3.5" />
-                  )}
+                  <PencilLine className="w-3.5 h-3.5" />
                   {feedback.message || `正在第 ${Math.min(current.correct_round + 1, ROUNDS_PER_RECITE)} 遍 · 抄完按回车确认`}
                 </p>
               </div>
