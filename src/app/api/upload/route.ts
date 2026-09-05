@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
-import { detectFileType, storage } from '@/lib/word-app';
+import { detectFileType, getStorage } from '@/lib/word-app';
 
 export const runtime = 'nodejs';
 
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(await file.arrayBuffer());
 
     // 注意：必须使用 uploadFile 返回的实际 key
-    const fileKey = await storage.uploadFile({
+    const fileKey = await getStorage().uploadFile({
       fileContent: buffer,
       fileName: `tmp-words/${batchId}/${safeName}`,
       contentType: file.type || 'application/octet-stream',

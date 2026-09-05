@@ -4,8 +4,8 @@ import {
   extractTextFromFetchResponse,
   extractWordsFromImage,
   extractWordsFromText,
-  fetchClient,
-  storage,
+  getFetchClient,
+  getStorage,
 } from '@/lib/word-app';
 
 export const runtime = 'nodejs';
@@ -42,12 +42,12 @@ export async function POST(request: NextRequest) {
 
     if (file.file_type === 'image') {
       // 图片：读取内容转 base64，交给多模态模型精准识别
-      const buffer = await storage.readFile({ fileKey: file.file_key });
+      const buffer = await getStorage().readFile({ fileKey: file.file_key });
       const mime = buffer.subarray(0, 4).toString('hex') === '89504e47' ? 'image/png' : 'image/jpeg';
       words = await extractWordsFromImage(buffer.toString('base64'), mime);
     } else {
       // PDF / Word / PPT / Excel / 文本：签名 URL 抓取解析出文本后再选词
-      const signedUrl = await storage.generatePresignedUrl({ key: file.file_key, expireTime: 3600 });
+      const signedUrl = await getStorage().generatePresignedUrl({ key: file.file_key, expireTime: 3600 });
       let text = '';
       if (file.file_type === 'text') {
         // 纯文本文件直接拉取原始内容，不走文档解析服务
@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
         text = (await resp.text()).slice(0, 12000);
         console.info(`[recognize] text 文件直取长度=${text.length}`);
       } else {
-        const response = await fetchClient.fetch(signedUrl);
+        const response = await getFetchClient().fetch(signedUrl);
         text = extractTextFromFetchResponse(response.content ?? []);
         console.info(`[recognize] 文档解析长度=${text.length}`);
       }

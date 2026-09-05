@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
-import { storage } from '@/lib/word-app';
+import { getStorage } from '@/lib/word-app';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
 
     for (const file of files) {
       try {
-        await storage.deleteFile({ fileKey: file.file_key });
+        await getStorage().deleteFile({ fileKey: file.file_key });
       } catch (deleteError) {
         console.error(`[cleanup] 删除对象存储文件失败 fileKey=${file.file_key}`, deleteError);
       }

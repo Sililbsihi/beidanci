@@ -1,27 +1,55 @@
 import { Config, FetchClient, LLMClient, SearchClient, S3Storage } from 'coze-coding-dev-sdk';
 import type { Message } from 'coze-coding-dev-sdk';
 
-const config = new Config();
+export type RecognizedWord = { word: string; pos?: string };
+
+/**
+ * SDK 客户端一律惰性初始化（首次请求时才创建）。
+ * 原因：Next.js 生产构建收集页面数据时会执行 API 路由模块的顶层代码，
+ * 构建环境没有 COZE_API_TOKEN，顶层 new 会导致构建失败（Failed to collect page data）。
+ */
+let sdkConfig: Config | null = null;
+let storageInstance: S3Storage | null = null;
+let llmInstance: LLMClient | null = null;
+let fetchClientInstance: FetchClient | null = null;
+let searchClientInstance: SearchClient | null = null;
+
+function getSdkConfig(): Config {
+  if (!sdkConfig) sdkConfig = new Config();
+  return sdkConfig;
+}
 
 /** 对象存储客户端（临时文件上传 / 读取 / 删除） */
-export const storage = new S3Storage({
-  endpointUrl: process.env.COZE_BUCKET_ENDPOINT_URL,
-  accessKey: '',
-  secretKey: '',
-  bucketName: process.env.COZE_BUCKET_NAME,
-  region: 'cn-beijing',
-});
+export function getStorage(): S3Storage {
+  if (!storageInstance) {
+    storageInstance = new S3Storage({
+      endpointUrl: process.env.COZE_BUCKET_ENDPOINT_URL,
+      accessKey: '',
+      secretKey: '',
+      bucketName: process.env.COZE_BUCKET_NAME,
+      region: 'cn-beijing',
+    });
+  }
+  return storageInstance;
+}
 
 /** LLM 客户端（图片 OCR / 文本选词 / 释义提炼） */
-export const llm = new LLMClient(config);
+export function getLLM(): LLMClient {
+  if (!llmInstance) llmInstance = new LLMClient(getSdkConfig());
+  return llmInstance;
+}
 
 /** URL 内容抓取客户端（PDF / Office 文档解析） */
-export const fetchClient = new FetchClient(config);
+export function getFetchClient(): FetchClient {
+  if (!fetchClientInstance) fetchClientInstance = new FetchClient(getSdkConfig());
+  return fetchClientInstance;
+}
 
 /** 搜索客户端（无释义单词的中文释义匹配） */
-export const searchClient = new SearchClient(config);
-
-export type RecognizedWord = { word: string; pos?: string };
+export function getSearchClient(): SearchClient {
+  if (!searchClientInstance) searchClientInstance = new SearchClient(getSdkConfig());
+  return searchClientInstance;
+}
 
 const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'];
 
@@ -104,7 +132,7 @@ async function imageOcrOnce(dataUri: string, partLabel: string): Promise<string[
       ],
     },
   ];
-  const response = await llm.invoke(messages, {
+  const response = await getLLM().invoke(messages, {
     model: 'doubao-seed-2-0-pro-260215',
     temperature: 0.05,
   });
@@ -224,7 +252,7 @@ export async function extractWordsFromText(text: string): Promise<RecognizedWord
     },
   ];
   try {
-    const response = await llm.invoke(messages, {
+    const response = await getLLM().invoke(messages, {
       model: 'doubao-seed-2-0-mini-260215',
       temperature: 0.2,
     });
@@ -266,7 +294,7 @@ export function extractWordsLocally(text: string): RecognizedWord[] {
 export async function refineTranslation(word: string): Promise<string> {
   let searchContext = '';
   try {
-    const result = await searchClient.webSearch(`${word} 英语单词 中文意思 释义`, 5);
+    const result = await getSearchClient().webSearch(`${word} 英语单词 中文意思 释义`, 5);
     if (result?.web_items?.length) {
       searchContext = result.web_items
         .slice(0, 5)
@@ -297,7 +325,7 @@ export async function refineTranslation(word: string): Promise<string> {
         (searchContext ? `参考搜索结果：\n${searchContext}` : '无搜索结果，请依据你的词典知识给出。'),
     },
   ];
-  const response = await llm.invoke(messages, {
+  const response = await getLLM().invoke(messages, {
     model: 'doubao-seed-2-0-mini-260215',
     temperature: 0.2,
   }).catch(async (error: unknown) => {
