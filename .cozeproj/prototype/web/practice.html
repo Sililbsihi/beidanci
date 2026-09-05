@@ -123,7 +123,7 @@
       <!-- 页面标题 -->
       <div>
         <h1 class="text-2xl font-bold font-display text-on-surface">今日背诵练习</h1>
-        <p class="text-sm text-on-surface-variant mt-1">看中文释义，拼写出对应的英文单词，正确 3 遍即完成背诵</p>
+        <p class="text-sm text-on-surface-variant mt-1">看着单词逐字母照抄键入，正确 3 遍即完成背诵</p>
       </div>
 
       <!-- 区块1：顶部进度摘要条（今日进度 2/6，彩虹渐变进度条约 33%） -->
@@ -142,7 +142,7 @@
             </div>
           </div>
           <p class="text-xs text-on-surface-variant inline-flex items-center gap-1.5 pb-1">
-            <i data-lucide="info" class="w-3.5 h-3.5"></i>正确拼写 3 遍 = 已背诵 1 遍
+            <i data-lucide="info" class="w-3.5 h-3.5"></i>照抄正确 3 遍 = 已背诵 1 遍
           </p>
         </div>
         <div class="mt-4 h-2.5 rounded-full bg-surface-container overflow-hidden">
@@ -167,28 +167,45 @@
                 <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-jelly-blue/15 text-jelly-blue">v.</span>
                 <span class="text-xs text-on-surface-variant">动词</span>
               </div>
-              <span id="round-label" class="text-xs font-medium text-on-surface-variant">第 2 遍 / 共 3 遍</span>
+              <span id="round-label" class="text-xs font-medium text-on-surface-variant">第 3 遍 / 共 3 遍</span>
             </div>
 
-            <!-- 中文释义提示区（大号衬线字体） -->
+            <!-- 英文单词展示区（为主，大号）：照着此单词逐字母抄写 -->
             <div class="mt-8 text-center">
-              <p class="text-4xl md:text-5xl font-display font-bold text-on-surface tracking-wide">努力<span class="text-on-surface-variant">; </span>尝试</p>
-              <p class="mt-3 text-xs text-on-surface-variant">根据释义拼写对应的英文单词</p>
+              <p id="display-word" class="text-5xl md:text-7xl font-display font-bold text-on-surface tracking-[0.08em] leading-tight">endeavor</p>
+              <!-- 彩虹下划线装饰 -->
+              <div class="mt-4 mx-auto h-[3px] w-44 rounded-full bg-[linear-gradient(90deg,#E57373_0%,#F0A45B_20%,#E9C96A_40%,#7E9F7A_60%,#7FA3C9_80%,#A88BC9_100%)] opacity-70"></div>
+              <!-- 中文释义（为辅，位于单词底部，较小） -->
+              <p class="mt-4 text-sm md:text-base text-on-surface-variant">v. 努力<span class="mx-0.5">; </span>尝试</p>
+              <p class="mt-1.5 text-xs text-on-surface-variant/70">照着上方单词，逐字母键入抄写本遍</p>
             </div>
 
-            <!-- 拼写输入框（示例：已正确拼写状态，绿色对勾 + 鼓励文案） -->
-            <div class="mt-6 max-w-md mx-auto">
-              <div class="relative">
-                <input id="spell-input" type="text" value="endeavor" placeholder="输入英文单词并按回车确认" autocomplete="off" spellcheck="false"
-                  class="w-full bg-surface-container border-none rounded-xl px-4 py-3.5 pr-11 text-lg font-display tracking-widest text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all" />
-                <i id="spell-check-icon" data-lucide="check-circle-2" class="w-5 h-5 text-success absolute right-4 top-1/2 -translate-y-1/2"></i>
+            <!-- 逐字母键入区（大格子果冻键入，键入的字母一格一格显示；点击或直接键入开始） -->
+            <div id="typing-area" class="mt-9 max-w-2xl mx-auto relative cursor-text" title="点击此处开始抄写">
+              <div id="letter-cells" class="flex flex-wrap justify-center gap-2.5 md:gap-3">
+                <!-- 已键入格子：字母逐格显示，底边彩虹色轮换 -->
+                <div class="letter-cell w-12 h-14 md:w-14 md:h-16 rounded-xl bg-surface-container-lowest shadow-card flex items-center justify-center border-b-4 border-jelly-red/60 transition-colors"><span class="text-2xl md:text-3xl font-display font-bold text-on-surface">e</span></div>
+                <div class="letter-cell w-12 h-14 md:w-14 md:h-16 rounded-xl bg-surface-container-lowest shadow-card flex items-center justify-center border-b-4 border-jelly-orange/60 transition-colors"><span class="text-2xl md:text-3xl font-display font-bold text-on-surface">n</span></div>
+                <div class="letter-cell w-12 h-14 md:w-14 md:h-16 rounded-xl bg-surface-container-lowest shadow-card flex items-center justify-center border-b-4 border-jelly-yellow/60 transition-colors"><span class="text-2xl md:text-3xl font-display font-bold text-on-surface">d</span></div>
+                <div class="letter-cell w-12 h-14 md:w-14 md:h-16 rounded-xl bg-surface-container-lowest shadow-card flex items-center justify-center border-b-4 border-jelly-green/60 transition-colors"><span class="text-2xl md:text-3xl font-display font-bold text-on-surface">e</span></div>
+                <div class="letter-cell w-12 h-14 md:w-14 md:h-16 rounded-xl bg-surface-container-lowest shadow-card flex items-center justify-center border-b-4 border-jelly-blue/60 transition-colors"><span class="text-2xl md:text-3xl font-display font-bold text-on-surface">a</span></div>
+                <!-- 当前键入格子：高亮边框 + 闪烁光标 -->
+                <div class="letter-cell w-12 h-14 md:w-14 md:h-16 rounded-xl bg-primary/5 flex items-center justify-center ring-2 ring-primary/50 border-b-4 border-transparent transition-colors"><span class="w-0.5 h-7 md:h-8 bg-primary/70 rounded-full animate-pulse"></span></div>
+                <!-- 未键入空格子 -->
+                <div class="letter-cell w-12 h-14 md:w-14 md:h-16 rounded-xl bg-surface-container flex items-center justify-center border-b-4 border-transparent transition-colors"><span class="sr-only"></span></div>
+                <div class="letter-cell w-12 h-14 md:w-14 md:h-16 rounded-xl bg-surface-container flex items-center justify-center border-b-4 border-transparent transition-colors"><span class="sr-only"></span></div>
               </div>
-              <div class="mt-2.5 flex items-center justify-between gap-3">
-                <p id="letter-count" class="text-xs text-on-surface-variant">共 8 个字母</p>
-                <p id="spell-feedback" class="text-xs font-medium text-success inline-flex items-center gap-1">
-                  <i data-lucide="check" class="w-3.5 h-3.5"></i>正确！继续第 3 遍
-                </p>
-              </div>
+              <!-- 隐藏输入框：覆盖键入区捕获键盘逐字母输入 -->
+              <input id="spell-input" type="text" value="endea" autocomplete="off" spellcheck="false" aria-label="逐字母抄写输入"
+                class="absolute inset-0 w-full h-full opacity-0 cursor-text" />
+            </div>
+
+            <!-- 键入状态行：字母计数 + 本遍反馈 -->
+            <div class="mt-5 flex items-center justify-center gap-6 flex-wrap">
+              <p id="letter-count" class="text-xs text-on-surface-variant">已抄写 5 / 8 个字母</p>
+              <p id="spell-feedback" class="text-xs font-medium text-primary inline-flex items-center gap-1">
+                <i data-lucide="pencil-line" class="w-3.5 h-3.5"></i>正在第 3 遍 · 抄完按回车确认
+              </p>
             </div>
 
             <!-- 拼写进度圆点：前 2 个已点亮（彩虹渐变），第 3 个空心 -->
@@ -365,7 +382,7 @@
 
           <p class="mt-4 text-xs text-on-surface-variant/80 inline-flex items-start gap-1.5">
             <i data-lucide="rainbow" class="w-3.5 h-3.5 mt-0.5 text-jelly-purple shrink-0"></i>
-            正确拼写 3 遍 = 已背诵 1 遍，完成后自动记入背诵记录
+            照抄正确 3 遍 = 已背诵 1 遍，完成后自动记入背诵记录
           </p>
         </aside>
 
@@ -377,7 +394,9 @@
   <script>
     $(function () {
       var CURRENT_WORD = 'endeavor';   // 当前练习单词（示例演示状态）
-      var currentRound = 2;            // 已正确拼写的遍数（对应 2 个点亮圆点）
+      var currentRound = 2;            // 已正确照抄的遍数（对应 2 个点亮圆点，当前进行第 3 遍）
+      // 逐字母格子底边彩虹色轮换（彩虹果冻线条呼应）
+      var RAINBOW_BORDERS = ['border-jelly-red/60', 'border-jelly-orange/60', 'border-jelly-yellow/60', 'border-jelly-green/60', 'border-jelly-blue/60', 'border-jelly-purple/60'];
 
       // 果冻抖动：拼写错误或点击状态示例卡时触发（keyframes 定义在页内 <style>）
       function jellyShake($el) {
@@ -388,44 +407,80 @@
         setTimeout(function () { node.style.animation = ''; }, 750);
       }
 
-      // 输入框：实时字母计数
-      $('#spell-input').on('input', function () {
-        var len = String($(this).val() || '').trim().length;
-        $('#letter-count').text(len === 0 ? '共 8 个字母' : '已输入 ' + len + ' / 8 个字母');
+      // 逐字母格子重绘：根据输入值一格一格显示已键入字母（交互反馈渲染）
+      function renderCells(val) {
+        val = String(val || '').toLowerCase().replace(/[^a-z]/g, '').slice(0, CURRENT_WORD.length);
+        $('#spell-input').val(val);
+        $('#letter-cells').children('.letter-cell').each(function (i) {
+          var $cell = $(this);
+          $cell.removeClass('bg-surface-container-lowest bg-surface-container bg-primary/5 shadow-card ring-2 ring-primary/50 ' + RAINBOW_BORDERS.join(' '))
+            .addClass('bg-surface-container border-transparent');
+          if (i < val.length) {
+            // 已键入格：大字显示字母，底边彩虹色轮换
+            $cell.removeClass('bg-surface-container border-transparent')
+              .addClass('bg-surface-container-lowest shadow-card ' + RAINBOW_BORDERS[i % RAINBOW_BORDERS.length]);
+            $cell.find('span').first()
+              .attr('class', 'text-2xl md:text-3xl font-display font-bold text-on-surface')
+              .text(val.charAt(i));
+          } else if (i === val.length) {
+            // 当前键入格：高亮 + 闪烁光标
+            $cell.removeClass('bg-surface-container').addClass('bg-primary/5 ring-2 ring-primary/50');
+            $cell.find('span').first()
+              .attr('class', 'w-0.5 h-7 md:h-8 bg-primary/70 rounded-full animate-pulse')
+              .text('');
+          } else {
+            // 未键入空格子
+            $cell.find('span').first().attr('class', 'sr-only').text('');
+          }
+        });
+        $('#letter-count').text('已抄写 ' + val.length + ' / ' + CURRENT_WORD.length + ' 个字母');
+      }
+
+      // 点击键入区任意位置聚焦隐藏输入框，开始逐字母抄写
+      $('#typing-area').on('click', function () {
+        $('#spell-input').trigger('focus');
       });
 
-      // 输入框：回车提交校验（当前单词 endeavor，与静态示例一致）
+      // 隐藏输入框：逐字母实时回显到格子
+      $('#spell-input').on('input', function () {
+        renderCells($(this).val());
+      });
+
+      // 隐藏输入框：回车确认本遍照抄（当前单词 endeavor，与静态示例一致）
       $('#spell-input').on('keydown', function (e) {
         if (e.key !== 'Enter') return;
-        var val = String($(this).val() || '').trim().toLowerCase();
+        var val = String($(this).val() || '').toLowerCase();
         if (val === CURRENT_WORD) {
-          // 拼写正确：点亮下一个圆点并更新轮次与反馈文案
+          // 本遍照抄正确：点亮下一个圆点并更新轮次与反馈文案
           if (currentRound < 3) {
             currentRound += 1;
             $('#dot-' + currentRound).removeClass('border-2 border-outline bg-transparent')
               .addClass('bg-[linear-gradient(135deg,#7E9F7A_0%,#7FA3C9_50%,#A88BC9_100%)]');
             $('#round-label').text('第 ' + currentRound + ' 遍 / 共 3 遍');
             if (currentRound >= 3) {
-              $('#spell-feedback').removeClass('text-success').addClass('text-primary')
+              $('#spell-feedback').removeClass('text-success text-primary').addClass('text-primary')
                 .text('太棒了！endeavor 已背诵 1 遍');
             } else {
               $('#spell-feedback').removeClass('text-error text-primary').addClass('text-success')
                 .text('正确！继续第 ' + (currentRound + 1) + ' 遍');
             }
+            // 清空格子，开始下一遍照抄
+            renderCells('');
           }
         } else {
-          // 拼写错误：核心卡果冻抖动 + 红色反馈（拼错 3 次重置进度的逻辑见"跳过/错误重置"注释）
+          // 抄写错误：核心卡果冻抖动 + 红色反馈，清空格子重新抄写本遍（拼错后本遍进度清零重抄 3 遍的逻辑见"跳过/错误重置"注释）
           jellyShake($('#core-word-card'));
           $('#spell-feedback').removeClass('text-success text-primary').addClass('text-error')
-            .text('拼写错误，请重新输入');
+            .text('抄写有误，请对照上方单词重新抄写');
+          setTimeout(function () { renderCells(''); }, 400);
         }
       });
 
-      // 提示首字母按钮：输入框为空时填入首字母（简单交互，直接实现）
+      // 提示首字母按钮：格子为空时填入首字母（简单交互，直接实现）
       $('#btn-hint').on('click', function () {
-        var input = $('#spell-input');
-        if (String(input.val() || '').trim() === '') {
-          input.val(CURRENT_WORD.charAt(0)).trigger('input').focus();
+        if (String($('#spell-input').val() || '') === '') {
+          renderCells(CURRENT_WORD.charAt(0));
+          $('#spell-input').trigger('focus');
         }
         console.log('提示首字母:', CURRENT_WORD.charAt(0));
       });
