@@ -10,22 +10,26 @@ interface SupabaseCredentials {
 }
 
 function loadEnv(): void {
-  if (envLoaded || (process.env.COZE_SUPABASE_URL && process.env.COZE_SUPABASE_ANON_KEY)) {
+  if (envLoaded) return;
+
+  // .env 显式配置优先并覆盖进程/平台注入值：用于将数据库切换到用户自己的 Supabase 项目（独立部署）。
+  // 注意：不能把"进程已有变量"作为短路条件——沙箱与部署环境会预注入平台库变量，若先短路 .env 将被压制
+  try {
+    require('dotenv').config({ override: true });
+    if (process.env.COZE_SUPABASE_URL && process.env.COZE_SUPABASE_ANON_KEY) {
+      envLoaded = true;
+      return;
+    }
+  } catch {
+    // dotenv not available
+  }
+
+  if (process.env.COZE_SUPABASE_URL && process.env.COZE_SUPABASE_ANON_KEY) {
+    envLoaded = true;
     return;
   }
 
   try {
-    // .env 显式配置优先并覆盖平台注入值：用于将数据库切换到用户自己的 Supabase 项目（独立部署）
-    try {
-      require('dotenv').config({ override: true });
-      if (process.env.COZE_SUPABASE_URL && process.env.COZE_SUPABASE_ANON_KEY) {
-        envLoaded = true;
-        return;
-      }
-    } catch {
-      // dotenv not available
-    }
-
     const pythonCode = `
 import os
 import sys
@@ -72,7 +76,9 @@ except Exception as e:
 function getSupabaseCredentials(): SupabaseCredentials {
   loadEnv();
 
-  const url = process.env.COZE_SUPABASE_URL;
+  const rawUrl = process.env.COZE_SUPABASE_URL;
+  // supabase-js 需要项目根 URL：防御性去掉误粘贴的 /rest/v1/、尾部斜杠
+  const url = rawUrl ? rawUrl.replace(/\/rest\/v1\/?$/, '').replace(/\/+$/, '') : rawUrl;
   const anonKey = process.env.COZE_SUPABASE_ANON_KEY;
 
   if (!url) {
