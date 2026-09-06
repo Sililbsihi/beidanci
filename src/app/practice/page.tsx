@@ -118,13 +118,18 @@ export default function PracticePage() {
     })();
   }, [words, cleanedFiles]);
 
-  /** 局部更新单词；rev 用于丢弃过期的服务端响应（连背时响应乱序，不能回滚本地乐观进度） */
+  /**
+   * 局部更新单词。rev 语义：调用方基于的快照版本（w._rev 当前值）。
+   * 版本一致才应用，应用后内部原子 +1——调用方永远不手写 _rev，杜绝版本号错位导致更新被静默丢弃。
+   * 迟到的服务端响应（rev 不等于当前版本）直接丢弃，不回滚本地乐观进度。
+   */
   const patchWord = useCallback((id: number, patch: Partial<WordRow>, rev?: number) => {
     setWords((prev) =>
       prev.map((w) => {
         if (w.id !== id) return w;
-        if (rev !== undefined && (w._rev ?? 0) !== rev) return w;
-        return { ...w, ...patch };
+        const currentRev = w._rev ?? 0;
+        if (rev !== undefined && currentRev !== rev) return w;
+        return { ...w, ...patch, _rev: (rev ?? currentRev) + 1 };
       }),
     );
   }, []);
@@ -141,7 +146,7 @@ export default function PracticePage() {
     return null;
   };
 
-  /** 后台静默持久化拼写结果（乐观更新后调用，返回权威数据用于校正） */
+  /** 后台静默持久化拼写结果（乐观更新后调用，返回权威数据用于校正）。rev 为提交时的快照版本 */
   const persistType = useCallback(async (wordId: number, input: string, rev?: number) => {
     try {
       const res = await fetch('/api/practice/type', {
@@ -152,6 +157,8 @@ export default function PracticePage() {
       if (!res.ok) return;
       const data = (await res.json()) as TypeResult;
       if (typeof data.correct !== 'boolean') return;
+      // 乐观更新已把版本推进到 rev+1；服务端权威校正基于 rev+1 应用。
+      // 若用户在此期间又提交了输入（版本更高），本响应视为迟到数据被丢弃，避免回滚
       patchWord(
         wordId,
         {
@@ -160,7 +167,7 @@ export default function PracticePage() {
           total_typed: data.total_typed,
           status: data.completed_round ? 'done' : 'practicing',
         },
-        rev,
+        (rev ?? 0) + 1,
       );
     } catch {
       // 持久化失败静默：本地已乐观推进，下次进入页面由服务端数据校正
@@ -174,21 +181,21 @@ export default function PracticePage() {
 
     // 本地即时校验，拼写错误立即反馈（不等待网络）
     if (typed.trim().toLowerCase() !== current.word.toLowerCase()) {
-      const rev = (current._rev ?? 0) + 1;
+      const snapshotRev = current._rev ?? 0;
       setShaking(true);
       window.setTimeout(() => setShaking(false), 550);
       setFeedback({ type: 'error', message: '拼写错误，重新拼写 3 遍直至全部正确' });
-      patchWord(wordId, { correct_round: 0, status: 'practicing', _rev: rev });
+      patchWord(wordId, { correct_round: 0, status: 'practicing' }, snapshotRev);
       setTyped('');
       inputRef.current?.focus();
-      void persistType(wordId, typed, rev);
+      void persistType(wordId, typed, snapshotRev);
       return;
     }
 
     // 正确：本地乐观计算进度，UI 立即响应
     const nextRound = current.correct_round + 1;
     const completedRound = nextRound >= ROUNDS_PER_RECITE;
-    const nextRev = (current._rev ?? 0) + 1;
+    const snapshotRev = current._rev ?? 0;
     patchWord(
       wordId,
       {
@@ -197,10 +204,10 @@ export default function PracticePage() {
         total_typed: current.total_typed + 1,
         status: completedRound ? 'done' : 'practicing',
       },
-      nextRev,
+      snapshotRev,
     );
     setTyped('');
-    void persistType(wordId, typed, nextRev);
+    void persistType(wordId, typed, snapshotRev);
 
     if (completedRound) {
       setStats((prev) => ({ ...prev, done: Math.min(prev.done + 1, prev.total) }));
