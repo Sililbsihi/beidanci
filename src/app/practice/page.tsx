@@ -18,6 +18,8 @@ interface WordRow {
   recite_count: number;
   total_typed: number;
   status: string;
+  /** 本地渲染专用：乐观更新版本号（不落库），用于丢弃迟到的服务端响应 */
+  _rev?: number;
 }
 
 interface TypeResult {
@@ -116,9 +118,16 @@ export default function PracticePage() {
     })();
   }, [words, cleanedFiles]);
 
-  const patchWord = (id: number, patch: Partial<WordRow>) => {
-    setWords((prev) => prev.map((w) => (w.id === id ? { ...w, ...patch } : w)));
-  };
+  /** 局部更新单词；rev 用于丢弃过期的服务端响应（连背时响应乱序，不能回滚本地乐观进度） */
+  const patchWord = useCallback((id: number, patch: Partial<WordRow>, rev?: number) => {
+    setWords((prev) =>
+      prev.map((w) => {
+        if (w.id !== id) return w;
+        if (rev !== undefined && (w._rev ?? 0) !== rev) return w;
+        return { ...w, ...patch };
+      }),
+    );
+  }, []);
 
   /** 挑选下一个该背的单词：从当前词位置向下找第一个未完成一轮的词（recite_count === 0，含背了一半的），到队列尾部则回头补漏；全部完成返回 null。严格保持队列顺序，不回跳 */
   const pickNextWord = (list: WordRow[], excludeId: number | null): WordRow | null => {
@@ -133,7 +142,7 @@ export default function PracticePage() {
   };
 
   /** 后台静默持久化拼写结果（乐观更新后调用，返回权威数据用于校正） */
-  const persistType = useCallback(async (wordId: number, input: string) => {
+  const persistType = useCallback(async (wordId: number, input: string, rev?: number) => {
     try {
       const res = await fetch('/api/practice/type', {
         method: 'POST',
@@ -143,16 +152,20 @@ export default function PracticePage() {
       if (!res.ok) return;
       const data = (await res.json()) as TypeResult;
       if (typeof data.correct !== 'boolean') return;
-      patchWord(wordId, {
-        correct_round: data.correct_round,
-        recite_count: data.recite_count,
-        total_typed: data.total_typed,
-        status: data.completed_round ? 'done' : 'practicing',
-      });
+      patchWord(
+        wordId,
+        {
+          correct_round: data.correct_round,
+          recite_count: data.recite_count,
+          total_typed: data.total_typed,
+          status: data.completed_round ? 'done' : 'practicing',
+        },
+        rev,
+      );
     } catch {
       // 持久化失败静默：本地已乐观推进，下次进入页面由服务端数据校正
     }
-  }, []);
+  }, [patchWord]);
 
   /** 提交本轮照抄结果：本地即时校验 + 乐观更新（0 等待），后台异步持久化 */
   const submitTyped = useCallback(() => {
@@ -161,27 +174,33 @@ export default function PracticePage() {
 
     // 本地即时校验，拼写错误立即反馈（不等待网络）
     if (typed.trim().toLowerCase() !== current.word.toLowerCase()) {
+      const rev = (current._rev ?? 0) + 1;
       setShaking(true);
       window.setTimeout(() => setShaking(false), 550);
       setFeedback({ type: 'error', message: '拼写错误，重新拼写 3 遍直至全部正确' });
-      patchWord(wordId, { correct_round: 0, status: 'practicing' });
+      patchWord(wordId, { correct_round: 0, status: 'practicing', _rev: rev });
       setTyped('');
       inputRef.current?.focus();
-      void persistType(wordId, typed);
+      void persistType(wordId, typed, rev);
       return;
     }
 
     // 正确：本地乐观计算进度，UI 立即响应
     const nextRound = current.correct_round + 1;
     const completedRound = nextRound >= ROUNDS_PER_RECITE;
-    patchWord(wordId, {
-      correct_round: completedRound ? 0 : nextRound,
-      recite_count: completedRound ? current.recite_count + 1 : current.recite_count,
-      total_typed: current.total_typed + 1,
-      status: completedRound ? 'done' : 'practicing',
-    });
+    const nextRev = (current._rev ?? 0) + 1;
+    patchWord(
+      wordId,
+      {
+        correct_round: completedRound ? 0 : nextRound,
+        recite_count: completedRound ? current.recite_count + 1 : current.recite_count,
+        total_typed: current.total_typed + 1,
+        status: completedRound ? 'done' : 'practicing',
+      },
+      nextRev,
+    );
     setTyped('');
-    void persistType(wordId, typed);
+    void persistType(wordId, typed, nextRev);
 
     if (completedRound) {
       setStats((prev) => ({ ...prev, done: Math.min(prev.done + 1, prev.total) }));
