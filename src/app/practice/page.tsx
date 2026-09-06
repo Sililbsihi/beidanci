@@ -185,19 +185,20 @@ export default function PracticePage() {
 
     if (completedRound) {
       setStats((prev) => ({ ...prev, done: Math.min(prev.done + 1, prev.total) }));
-      // 完成一轮：立即切到下一个未背过的单词（不循环回已背词），无等待
       setFeedback({ type: 'idle', message: '' });
-      setWords((prev) => {
-        const next = pickNextWord(prev, wordId);
-        if (next) setCurrentId(next.id);
-        else setRoundAllDone(true);
-        return prev;
-      });
+      // 在事件处理器内直接选词（updater 内不能有副作用，StrictMode 下 setCurrentId 会被吞掉导致不切词）
+      // 完成一轮的当前词已通过上方 patchWord 将 recite_count +1，此处按队列向下找第一个未完成一轮的词
+      const next = pickNextWord(words, wordId);
+      if (next) {
+        setCurrentId(next.id);
+      } else {
+        setRoundAllDone(true);
+      }
     } else {
       setFeedback({ type: 'correct', message: `正确！继续第 ${nextRound + 1} 遍` });
       inputRef.current?.focus();
     }
-  }, [current, typed, persistType]);
+  }, [current, typed, words, persistType]);
 
   const handleHint = () => {
     if (!current) return;
