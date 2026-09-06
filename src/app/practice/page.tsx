@@ -62,9 +62,11 @@ export default function PracticePage() {
       setWords(list);
       setStats(data.stats ?? { total: list.length, done: 0 });
       setCurrentId((prevId) => {
-        if (prevId && list.some((w) => w.id === prevId)) return prevId;
-        const firstActive = list.find((w) => w.correct_round > 0 || w.recite_count === 0);
-        return firstActive?.id ?? list[0]?.id ?? null;
+        const prev = prevId ? list.find((w) => w.id === prevId) : undefined;
+        // 刷新保留位置的前提是该词还没完成本轮；否则定位队列中第一个未完成的词（严格顺序）
+        if (prev && prev.recite_count === 0) return prev.id;
+        const firstUnfinished = list.find((w) => w.recite_count === 0);
+        return firstUnfinished?.id ?? list[0]?.id ?? null;
       });
       // 进入页面时若所有单词都已背完至少一轮，直接展示完成态
       setRoundAllDone(list.length > 0 && list.every((w) => w.recite_count >= 1 && w.correct_round === 0));
@@ -118,12 +120,15 @@ export default function PracticePage() {
     setWords((prev) => prev.map((w) => (w.id === id ? { ...w, ...patch } : w)));
   };
 
-  /** 挑选下一个该背的单词：进行中的 > 从未背过的 > null（全部完成本轮） */
+  /** 挑选下一个该背的单词：从当前词位置向下找第一个未完成一轮的词（recite_count === 0，含背了一半的），到队列尾部则回头补漏；全部完成返回 null。严格保持队列顺序，不回跳 */
   const pickNextWord = (list: WordRow[], excludeId: number | null): WordRow | null => {
-    const practicing = list.find((w) => w.correct_round > 0 && w.id !== excludeId);
-    if (practicing) return practicing;
-    const fresh = list.find((w) => w.recite_count === 0 && w.correct_round === 0 && w.id !== excludeId);
-    if (fresh) return fresh;
+    const idx = excludeId === null ? -1 : list.findIndex((w) => w.id === excludeId);
+    for (let i = idx + 1; i < list.length; i++) {
+      if (list[i].recite_count === 0) return list[i];
+    }
+    for (let i = 0; i <= idx; i++) {
+      if (list[i].id !== excludeId && list[i].recite_count === 0) return list[i];
+    }
     return null;
   };
 
