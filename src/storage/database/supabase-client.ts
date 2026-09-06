@@ -15,8 +15,9 @@ function loadEnv(): void {
   }
 
   try {
+    // .env 显式配置优先并覆盖平台注入值：用于将数据库切换到用户自己的 Supabase 项目（独立部署）
     try {
-      require('dotenv').config();
+      require('dotenv').config({ override: true });
       if (process.env.COZE_SUPABASE_URL && process.env.COZE_SUPABASE_ANON_KEY) {
         envLoaded = true;
         return;
