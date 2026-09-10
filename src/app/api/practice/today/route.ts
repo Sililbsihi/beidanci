@@ -18,15 +18,15 @@ interface WordRow {
   created_at: string;
 }
 
-/** GET /api/practice/today 今日待背队列：练习中 > 待开始 > 已完成，返回进度统计 */
+/** GET /api/practice/today 今日待背队列：按上传顺序（id 升序）全量返回，返回进度统计 */
 export async function GET() {
   try {
     const client = getSupabaseClient();
+    // 全量返回：limit 会把最新加入的词（id 最大、排在末尾）截掉，导致"加入后背诵页看不到"
     const { data, error } = await client
       .from('words')
       .select('id, word, pos, translation, translation_source, source_file, batch_id, correct_round, recite_count, total_typed, status, created_at')
-      .order('id', { ascending: true })
-      .limit(200);
+      .order('id', { ascending: true });
     if (error) throw new Error(`查询队列失败: ${error.message}`);
 
     const words = (data ?? []) as WordRow[];
