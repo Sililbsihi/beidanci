@@ -12,14 +12,14 @@ interface SupabaseCredentials {
 function loadEnv(): void {
   if (envLoaded) return;
 
-  // .env 显式配置优先并覆盖进程/平台注入值：用于将数据库切换到用户自己的 Supabase 项目（独立部署）。
-  // 注意：不能把"进程已有变量"作为短路条件——沙箱与部署环境会预注入平台库变量，若先短路 .env 将被压制
+  // 两级加载，优先级：进程/平台注入 < .env（部署打包兜底） < .env.local（用户显式配置，最高优先）
+  // 背景：部署打包会把平台环境变量追加进 .env（同名键排在后部，dotenv 解析时后者覆盖前者），
+  // 若用户凭证只写在 .env，会被平台指向的 COZE_SUPABASE_* 覆盖，导致线上静默连回平台库。
+  // 因此用户凭证的唯一权威来源是 .env.local（不受打包追加影响，加载顺序最后且强制覆盖）。
   try {
-    require('dotenv').config({ override: true });
-    if (process.env.COZE_SUPABASE_URL && process.env.COZE_SUPABASE_ANON_KEY) {
-      envLoaded = true;
-      return;
-    }
+    const dotenv = require('dotenv');
+    dotenv.config({ path: '.env', override: false });
+    dotenv.config({ path: '.env.local', override: true });
   } catch {
     // dotenv not available
   }

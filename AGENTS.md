@@ -70,3 +70,4 @@ src/
 - LLM 输出 JSON 需容错解析（`src/lib/word-app.ts` 的 `parseWordsJson`）
 - 释义格式：1-2 个中文释义以 `;` 分隔（如 `努力; 尝试`）
 - 图片识别用 `doubao-seed-2-0-lite-260215`（多模态），释义提炼用 `doubao-seed-2-0-mini-260215`（低成本）
+- 数据库凭证加载优先级：进程/平台注入 < `.env`（部署打包会向其追加平台变量，同名键后者覆盖前者） < `.env.local`（强制覆盖，最高优先）。用户自有 Supabase 凭证唯一权威来源是 `.env.local`，严禁把凭证写回 `.env`
