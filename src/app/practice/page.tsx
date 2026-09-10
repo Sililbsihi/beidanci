@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Target, Info, PencilLine, Lightbulb, SkipForward, CircleCheck, Trash2, PartyPopper, BookOpen, Repeat, FileUp,
+  Target, Info, PencilLine, Lightbulb, SkipForward, CircleCheck, PartyPopper, BookOpen, Repeat, FileUp,
 } from 'lucide-react';
 
 interface WordRow {
@@ -18,6 +18,9 @@ interface WordRow {
   recite_count: number;
   total_typed: number;
   status: string;
+  created_at?: string;
+  /** 服务端计算的完成态：本轮背诵目标已达成（重复导入会重新变为未完成） */
+  _done: boolean;
   /** 本地渲染专用：乐观更新版本号（不落库），用于丢弃迟到的服务端响应 */
   _rev?: number;
 }
@@ -40,7 +43,6 @@ export default function PracticePage() {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [words, setWords] = useState<WordRow[]>([]);
-  const [stats, setStats] = useState({ total: 0, done: 0 });
   const [currentId, setCurrentId] = useState<number | null>(null);
   const [typed, setTyped] = useState('');
   const [feedback, setFeedback] = useState<{ type: 'idle' | 'correct' | 'error'; message: string }>({
@@ -49,29 +51,44 @@ export default function PracticePage() {
   });
   const [shaking, setShaking] = useState(false);
   const [enterPop, setEnterPop] = useState(false);
-  const [cleanedFiles, setCleanedFiles] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [roundAllDone, setRoundAllDone] = useState(false);
 
   const current = useMemo(() => words.find((w) => w.id === currentId) ?? null, [words, currentId]);
 
+  /** 进度数据全部由 words 派生：乐观更新即时反映，无需手动同步 stats */
+  const progress = useMemo(() => {
+    const total = words.length;
+    const done = words.filter((w) => w._done).length;
+    // 最近一次导入的批次：取 created_at 最新的单词所属批次，统计该批总量与已背数量
+    const withBatch = words.filter((w) => w.batch_id);
+    let latestBatch: { total: number; done: number } | null = null;
+    if (withBatch.length > 0) {
+      const latestBatchId = withBatch.reduce((acc, w) =>
+        new Date(w.created_at ?? 0).getTime() > new Date(acc.created_at ?? 0).getTime() ? w : acc,
+      ).batch_id;
+      const batchWords = words.filter((w) => w.batch_id === latestBatchId);
+      latestBatch = { total: batchWords.length, done: batchWords.filter((w) => w._done).length };
+    }
+    return { total, done, remaining: total - done, latestBatch };
+  }, [words]);
+
   const loadQueue = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch('/api/practice/today');
-      const data = (await res.json()) as { words?: WordRow[]; stats?: { total: number; done: number } };
+      const data = (await res.json()) as { words?: WordRow[] };
       const list = data.words ?? [];
       setWords(list);
-      setStats(data.stats ?? { total: list.length, done: 0 });
       setCurrentId((prevId) => {
         const prev = prevId ? list.find((w) => w.id === prevId) : undefined;
         // 刷新保留位置的前提是该词还没完成本轮；否则定位队列中第一个未完成的词（严格顺序）
-        if (prev && prev.recite_count === 0) return prev.id;
-        const firstUnfinished = list.find((w) => w.recite_count === 0);
+        if (prev && !prev._done) return prev.id;
+        const firstUnfinished = list.find((w) => !w._done);
         return firstUnfinished?.id ?? list[0]?.id ?? null;
       });
-      // 进入页面时若所有单词都已背完至少一轮，直接展示完成态
-      setRoundAllDone(list.length > 0 && list.every((w) => w.recite_count >= 1 && w.correct_round === 0));
+      // 进入页面时若所有单词都已完成本轮背诵，直接展示完成态
+      setRoundAllDone(list.length > 0 && list.every((w) => w._done));
     } catch {
       // 加载失败时保持空队列
     } finally {
@@ -92,32 +109,6 @@ export default function PracticePage() {
     return () => window.clearTimeout(timer);
   }, [currentId]);
 
-  /** 批次内全部单词完成至少一轮背诵后，自动清理临时文件 */
-  useEffect(() => {
-    if (words.length === 0 || cleanedFiles) return;
-    const allDone = words.every((w) => w.recite_count >= 1 && w.correct_round === 0);
-    if (!allDone) return;
-    const batchIds = [...new Set(words.map((w) => w.batch_id).filter((b): b is string => Boolean(b)))];
-    if (batchIds.length === 0) return;
-    void (async () => {
-      const filenames: string[] = [];
-      for (const batchId of batchIds) {
-        try {
-          const res = await fetch('/api/cleanup', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ batchId }),
-          });
-          const data = (await res.json()) as { filenames?: string[] };
-          filenames.push(...(data.filenames ?? []));
-        } catch {
-          // 清理失败不阻塞背诵流程，记录页仍会展示待清理状态
-        }
-      }
-      setCleanedFiles(filenames);
-    })();
-  }, [words, cleanedFiles]);
-
   /**
    * 局部更新单词。rev 语义：调用方基于的快照版本（w._rev 当前值）。
    * 版本一致才应用，应用后内部原子 +1——调用方永远不手写 _rev，杜绝版本号错位导致更新被静默丢弃。
@@ -134,14 +125,14 @@ export default function PracticePage() {
     );
   }, []);
 
-  /** 挑选下一个该背的单词：从当前词位置向下找第一个未完成一轮的词（recite_count === 0，含背了一半的），到队列尾部则回头补漏；全部完成返回 null。严格保持队列顺序，不回跳 */
+  /** 挑选下一个该背的单词：从当前词位置向下找第一个未完成的词（含背了一半的），到队列尾部则回头补漏；全部完成返回 null。严格保持队列顺序，不回跳 */
   const pickNextWord = (list: WordRow[], excludeId: number | null): WordRow | null => {
     const idx = excludeId === null ? -1 : list.findIndex((w) => w.id === excludeId);
     for (let i = idx + 1; i < list.length; i++) {
-      if (list[i].recite_count === 0) return list[i];
+      if (!list[i]._done) return list[i];
     }
     for (let i = 0; i <= idx; i++) {
-      if (list[i].id !== excludeId && list[i].recite_count === 0) return list[i];
+      if (list[i].id !== excludeId && !list[i]._done) return list[i];
     }
     return null;
   };
@@ -166,6 +157,7 @@ export default function PracticePage() {
           recite_count: data.recite_count,
           total_typed: data.total_typed,
           status: data.completed_round ? 'done' : 'practicing',
+          _done: data.completed_round,
         },
         (rev ?? 0) + 1,
       );
@@ -185,7 +177,7 @@ export default function PracticePage() {
       setShaking(true);
       window.setTimeout(() => setShaking(false), 550);
       setFeedback({ type: 'error', message: '拼写错误，重新拼写 3 遍直至全部正确' });
-      patchWord(wordId, { correct_round: 0, status: 'practicing' }, snapshotRev);
+      patchWord(wordId, { correct_round: 0, status: 'practicing', _done: false }, snapshotRev);
       setTyped('');
       inputRef.current?.focus();
       void persistType(wordId, typed, snapshotRev);
@@ -203,6 +195,7 @@ export default function PracticePage() {
         recite_count: completedRound ? current.recite_count + 1 : current.recite_count,
         total_typed: current.total_typed + 1,
         status: completedRound ? 'done' : 'practicing',
+        _done: completedRound,
       },
       snapshotRev,
     );
@@ -210,10 +203,9 @@ export default function PracticePage() {
     void persistType(wordId, typed, snapshotRev);
 
     if (completedRound) {
-      setStats((prev) => ({ ...prev, done: Math.min(prev.done + 1, prev.total) }));
       setFeedback({ type: 'idle', message: '' });
       // 在事件处理器内直接选词（updater 内不能有副作用，StrictMode 下 setCurrentId 会被吞掉导致不切词）
-      // 完成一轮的当前词已通过上方 patchWord 将 recite_count +1，此处按队列向下找第一个未完成一轮的词
+      // 完成一轮的当前词已通过上方 patchWord 标记为完成，此处按队列向下找第一个未完成的词
       const next = pickNextWord(words, wordId);
       if (next) {
         setCurrentId(next.id);
@@ -291,31 +283,25 @@ export default function PracticePage() {
             <div>
               <p className="text-xs text-on-surface-variant">今日进度</p>
               <p className="font-display font-bold text-on-surface leading-tight">
-                <span className="text-2xl">{stats.done}</span>
-                <span className="text-sm font-sans font-medium text-on-surface-variant"> / {stats.total} 词已完成</span>
+                <span className="text-2xl">{progress.remaining}</span>
+                <span className="text-sm font-sans font-medium text-on-surface-variant"> 个单词还未背诵</span>
               </p>
             </div>
           </div>
-          <p className="text-xs text-on-surface-variant inline-flex items-center gap-1.5 pb-1">
-            <Info className="w-3.5 h-3.5" />
-            照抄正确 3 遍 = 已背诵 1 遍
-          </p>
+          {progress.latestBatch && (
+            <p className="text-xs text-on-surface-variant inline-flex items-center gap-1.5 pb-1">
+              <Info className="w-3.5 h-3.5" />
+              最近导入 {progress.latestBatch.total} 个 · 已背 {progress.latestBatch.done} 个
+            </p>
+          )}
         </div>
         <div className="mt-4 h-2.5 rounded-full bg-surface-container overflow-hidden">
           <div
             className={`h-full rounded-full transition-all duration-500 ${RAINBOW_BAR}`}
-            style={{ width: stats.total > 0 ? `${(stats.done / stats.total) * 100}%` : '0%' }}
+            style={{ width: progress.total > 0 ? `${(progress.done / progress.total) * 100}%` : '0%' }}
           />
         </div>
       </section>
-
-      {/* 临时文件清理提示 */}
-      {cleanedFiles && cleanedFiles.length > 0 && (
-        <div className="flex items-center gap-2.5 bg-success/10 text-success rounded-xl px-4 py-3 text-sm">
-          <Trash2 className="w-4.5 h-4.5 shrink-0" />
-          <span>本批上传的 {cleanedFiles.length} 个临时文件（{cleanedFiles.join('、')}）已在背诵完成后自动删除</span>
-        </div>
-      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
         {/* 左列：核心单词卡 */}
@@ -328,7 +314,7 @@ export default function PracticePage() {
               </div>
               <h2 className="mt-5 font-display font-bold text-2xl text-on-surface">本批单词已全部完成一轮背诵</h2>
               <p className="mt-2 text-sm text-on-surface-variant">
-                共 {words.length} 个单词 · 上传的临时文件已自动清理。可再背一轮巩固记忆，次数会累加。
+                共 {words.length} 个单词 · 重复导入的单词会重新进入队列再背一遍。
               </p>
               <div className={`mt-5 mx-auto h-[3px] w-40 rounded-full ${RAINBOW_BAR} opacity-70`} />
               <div className="mt-7 flex items-center justify-center gap-3 flex-wrap">

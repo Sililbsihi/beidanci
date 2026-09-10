@@ -68,6 +68,18 @@ export async function POST(request: NextRequest) {
       words = await extractWordsFromText(text);
     }
 
+    // 文件即用即焚：单词已提取完毕，立即删除对象存储文件并标记记录为 deleted（失败不阻塞返回）
+    try {
+      await getStorage().deleteFile({ fileKey: file.file_key });
+      await client
+        .from('upload_files')
+        .update({ status: 'deleted', deleted_at: new Date().toISOString() })
+        .eq('id', file.id);
+      console.info(`[recognize] 临时文件已清理 fileKey=${file.file_key}`);
+    } catch (cleanupError) {
+      console.warn(`[recognize] 临时文件清理失败 fileKey=${file.file_key}`, cleanupError);
+    }
+
     return NextResponse.json({ words, file: { id: file.id, filename: file.filename } });
   } catch (error) {
     console.error('[recognize] 识别失败', error);

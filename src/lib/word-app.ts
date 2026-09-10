@@ -51,6 +51,34 @@ export function getSearchClient(): SearchClient {
   return searchClientInstance;
 }
 
+/**
+ * words 表新列（target_recite / import_count）探测缓存：null=未探测，true/false=结果。
+ * 进程内缓存，重新部署/重启后自动重新探测——用户在 Supabase 执行过 ALTER TABLE 后自动启用新功能。
+ */
+let wordsNewColumns: boolean | null = null;
+
+export function wordsNewColumnsReady(): boolean {
+  return wordsNewColumns === true;
+}
+
+/** 探测 words 表是否已包含重复导入/导入次数统计所需的新列，未建列时调用方走旧逻辑降级 */
+export async function probeWordsNewColumns(client: unknown): Promise<boolean> {
+  const c = client as {
+    from: (table: string) => { select: (cols: string) => { limit: (n: number) => Promise<{ error: { message: string } | null }> } };
+  };
+  if (wordsNewColumns !== null) return wordsNewColumns;
+  try {
+    const { error } = await c.from('words').select('target_recite, import_count').limit(1);
+    wordsNewColumns = !error;
+  } catch {
+    wordsNewColumns = false;
+  }
+  if (!wordsNewColumns) {
+    console.warn('[schema] words 表缺少 target_recite/import_count 列，重复导入与导入次数统计降级为旧行为');
+  }
+  return wordsNewColumns;
+}
+
 const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'];
 
 /** 根据文件名与 MIME 判定业务文件类型 */

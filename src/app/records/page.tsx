@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import {
-  BookOpen, Repeat, Flame, Sun, Trash2, ArrowRight, History, CalendarDays,
+  BookOpen, Repeat, Flame, Sun, ArrowRight, History, CalendarDays, TrendingUp, Trophy, AlertCircle, Ruler, Repeat2,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 
@@ -22,20 +22,28 @@ interface HistoryItem {
   session_no: number;
 }
 
-interface FileRow {
-  id: number;
-  filename: string;
-  status: string;
-  created_at: string;
-  deleted_at: string | null;
+interface WeeklyDay {
+  date: string;
+  count: number;
+  words: string[];
+}
+
+interface Rankings {
+  mistakes: Array<{ word: string; count: number }>;
+  longest: Array<{ word: string; length: number }>;
+  reimported: Array<{ word: string; count: number }>;
 }
 
 interface RecordsData {
-  stats: { totalWords: number; totalRecites: number; streakDays: number; todayWords: number };
+  stats: { totalWords: number; totalRecites: number; streakDays: number; todayCount: number };
   today: WordRow[];
   history: Array<{ date: string; count: number; items: HistoryItem[] }>;
-  files: FileRow[];
+  weekly: WeeklyDay[];
+  rankings: Rankings;
 }
+
+const EMPTY_RANKINGS: Rankings = { mistakes: [], longest: [], reimported: [] };
+const EMPTY_STATS = { totalWords: 0, totalRecites: 0, streakDays: 0, todayCount: 0 };
 
 const RAINBOW_BAR =
   'bg-[linear-gradient(90deg,#E57373_0%,#F0A45B_20%,#E9C96A_40%,#7E9F7A_60%,#7FA3C9_80%,#A88BC9_100%)]';
@@ -54,15 +62,16 @@ export default function RecordsPage() {
     void (async () => {
       try {
         const res = await fetch('/api/records');
-        const json = (await res.json()) as RecordsData;
+        const json = (await res.json()) as Partial<RecordsData>;
         setData({
-          stats: json.stats ?? { totalWords: 0, totalRecites: 0, streakDays: 0, todayWords: 0 },
+          stats: json.stats ?? EMPTY_STATS,
           today: json.today ?? [],
           history: json.history ?? [],
-          files: json.files ?? [],
+          weekly: json.weekly ?? [],
+          rankings: { ...EMPTY_RANKINGS, ...(json.rankings ?? {}) },
         });
       } catch {
-        setData({ stats: { totalWords: 0, totalRecites: 0, streakDays: 0, todayWords: 0 }, today: [], history: [], files: [] });
+        setData({ stats: EMPTY_STATS, today: [], history: [], weekly: [], rankings: EMPTY_RANKINGS });
       } finally {
         setLoading(false);
       }
@@ -78,11 +87,37 @@ export default function RecordsPage() {
     { icon: <BookOpen className="w-5 h-5" />, bar: 'bg-jelly-red', label: '累计背诵单词', value: String(stats.totalWords) },
     { icon: <Repeat className="w-5 h-5" />, bar: 'bg-jelly-orange', label: '累计背诵次数', value: String(stats.totalRecites), hint: '正确拼写 3 遍计 1 次' },
     { icon: <Flame className="w-5 h-5" />, bar: 'bg-jelly-yellow', label: '连续背诵天数', value: `${stats.streakDays} 天` },
-    { icon: <Sun className="w-5 h-5" />, bar: 'bg-jelly-green', label: '今日已背', value: `${stats.todayWords} 词` },
+    { icon: <Sun className="w-5 h-5" />, bar: 'bg-jelly-green', label: '今日已背', value: `${stats.todayCount} 词` },
   ];
 
-  const activeFiles = data!.files.filter((f) => f.status === 'active');
-  const deletedFiles = data!.files.filter((f) => f.status === 'deleted');
+  const weekly = data!.weekly;
+  const rankings = data!.rankings;
+  const maxCount = Math.max(...weekly.map((d) => d.count), 1);
+  const todayKey = new Date().toISOString().slice(0, 10);
+
+  const rankingCards: Array<{ icon: ReactNode; bar: string; title: string; empty: string; items: Array<{ key: string; label: string; value: string }> }> = [
+    {
+      icon: <AlertCircle className="w-4.5 h-4.5" />,
+      bar: 'bg-jelly-red',
+      title: '犯错最多',
+      empty: '还没有拼错记录，稳得很',
+      items: rankings.mistakes.map((m) => ({ key: m.word, label: m.word, value: `拼错 ${m.count} 次` })),
+    },
+    {
+      icon: <Ruler className="w-4.5 h-4.5" />,
+      bar: 'bg-jelly-blue',
+      title: '最长的单词',
+      empty: '先导入一些单词吧',
+      items: rankings.longest.map((l) => ({ key: l.word, label: l.word, value: `${l.length} 个字母` })),
+    },
+    {
+      icon: <Repeat2 className="w-4.5 h-4.5" />,
+      bar: 'bg-jelly-purple',
+      title: '重复导入最多',
+      empty: '还没有重复导入的单词',
+      items: rankings.reimported.map((r) => ({ key: r.word, label: r.word, value: `导入 ${r.count} 次` })),
+    },
+  ];
 
   return (
     <div className="space-y-6">
@@ -117,24 +152,73 @@ export default function RecordsPage() {
         ))}
       </section>
 
-      {/* 临时文件清理状态 */}
-      <section className="flex items-start gap-3 bg-success/10 rounded-2xl px-4 py-3.5">
-        <Trash2 className="w-4.5 h-4.5 text-success shrink-0 mt-0.5" />
-        <div className="flex-1 min-w-0 text-sm">
-          {data!.files.length === 0 ? (
-            <p className="text-on-surface-variant">还没有上传过文件，临时文件记录会出现在这里</p>
-          ) : activeFiles.length > 0 ? (
-            <>
-              <p className="text-success font-medium">
-                {activeFiles.length} 个临时文件（{activeFiles.map((f) => f.filename).join('、')}）待清理
-              </p>
-              <p className="text-xs text-on-surface-variant mt-0.5">完成本批单词的一轮背诵后将自动删除</p>
-            </>
-          ) : (
-            <p className="text-success font-medium">本次上传的 {deletedFiles.length} 个临时文件已在背诵完成后自动删除</p>
-          )}
+      {/* 近 7 天背诵趋势 */}
+      <section className="bg-surface/80 backdrop-blur-md rounded-2xl shadow-card p-5">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="font-display font-bold text-on-surface inline-flex items-center gap-2">
+            <TrendingUp className="w-4.5 h-4.5 text-primary" />
+            近 7 天背诵趋势
+          </h2>
+          <span className="text-xs text-on-surface-variant">每天完成背诵的轮次数量</span>
         </div>
-        <span className="text-xs text-on-surface-variant/70 shrink-0 hidden md:block">仅保留单词与背诵记录</span>
+        <div className="mt-5 flex items-end gap-2 h-40">
+          {weekly.map((day, index) => (
+            <div key={day.date} className="flex-1 flex flex-col items-center gap-1.5 min-w-0">
+              <span className={`text-xs font-medium ${day.count > 0 ? 'text-on-surface' : 'text-on-surface-variant/40'}`}>
+                {day.count > 0 ? day.count : ''}
+              </span>
+              <div
+                className={`w-full max-w-10 rounded-t-xl transition-all duration-500 ${day.date === todayKey ? 'ring-2 ring-primary/40' : ''}`}
+                style={{
+                  height: `${Math.max((day.count / maxCount) * 100, day.count > 0 ? 8 : 3)}%`,
+                  backgroundColor: RAINBOW_SOLID[index % RAINBOW_SOLID.length],
+                  opacity: day.count > 0 ? 0.85 : 0.3,
+                }}
+                title={day.count > 0 ? `${day.date}：${day.words.join('、')}` : day.date}
+              />
+              <span className={`text-[10px] ${day.date === todayKey ? 'text-primary font-semibold' : 'text-on-surface-variant'}`}>
+                {day.date.slice(5)}
+              </span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* 趣味排行榜 */}
+      <section className="space-y-3">
+        <h2 className="font-display font-bold text-on-surface inline-flex items-center gap-2">
+          <Trophy className="w-4.5 h-4.5 text-primary" />
+          趣味排行
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {rankingCards.map((card) => (
+            <div key={card.title} className="bg-surface/80 backdrop-blur-md rounded-2xl shadow-card p-4 relative overflow-hidden">
+              <div className={`absolute top-0 left-0 right-0 h-1 ${card.bar} opacity-80`} />
+              <h3 className="font-display font-semibold text-on-surface text-sm inline-flex items-center gap-1.5">
+                <span className="text-primary">{card.icon}</span>
+                {card.title}
+              </h3>
+              {card.items.length === 0 ? (
+                <p className="mt-3 text-xs text-on-surface-variant/70">{card.empty}</p>
+              ) : (
+                <ol className="mt-3 space-y-2">
+                  {card.items.map((item, index) => (
+                    <li key={item.key} className="flex items-center gap-2.5 min-w-0">
+                      <span
+                        className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold text-white shrink-0"
+                        style={{ backgroundColor: RAINBOW_SOLID[index % RAINBOW_SOLID.length] }}
+                      >
+                        {index + 1}
+                      </span>
+                      <span className="font-display font-medium text-on-surface text-sm truncate flex-1">{item.label}</span>
+                      <span className="text-xs text-on-surface-variant shrink-0">{item.value}</span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
+          ))}
+        </div>
       </section>
 
       {/* 今日记录 */}

@@ -47,6 +47,14 @@ export async function POST(request: NextRequest) {
         .update({ correct_round: 0, status: 'practicing' })
         .eq('id', word.id);
       if (resetError) throw new Error(`重置进度失败: ${resetError.message}`);
+      // 写入错误流水（round_index=0 代表一次拼错，与 round_index=3 的完成记录区分），供"犯错最多"排行榜聚合
+      const { error: mistakeError } = await client.from('practice_records').insert({
+        word_id: word.id,
+        word: word.word,
+        round_index: 0,
+        session_no: word.recite_count,
+      });
+      if (mistakeError) console.error('[practice/type] 写入错误流水失败', mistakeError);
       return NextResponse.json({
         correct: false,
         correct_round: 0,
