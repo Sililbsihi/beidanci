@@ -3,6 +3,8 @@ import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { detectFileType, getStorage } from '@/lib/word-app';
 
 export const runtime = 'nodejs';
+// 图片/文档上传含网络传输与对象存储写入，放宽到 120s 防平台默认超时掐断大文件
+export const maxDuration = 120;
 
 const MAX_SIZE = 20 * 1024 * 1024; // 20MB
 
@@ -23,6 +25,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: '不支持的文件格式，请上传图片（jpg/png/jpeg）、Word、PDF、PPT 或 Excel 文件' },
         { status: 400 },
+      );
+    }
+    // HEIC/HEIF（iPhone 默认拍照格式）无法被识别模型解码，明确拒绝并给出可操作指引
+    const isHeic =
+      /\.(hei[cf])$/i.test(file.name) || file.type === 'image/heic' || file.type === 'image/heif';
+    if (isHeic) {
+      return NextResponse.json(
+        {
+          error:
+            '暂不支持 HEIC 照片格式：请在 iPhone「设置-相机-格式」中改为「兼容性最佳」，或将照片另存为 jpg 后再上传',
+        },
+        { status: 415 },
       );
     }
 

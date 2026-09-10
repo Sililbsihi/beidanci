@@ -107,6 +107,80 @@ export default function HomePage() {
   }, [showToast]);
 
   /** 上传并识别：图片走多模态 OCR，文档走解析选词 */
+/** 上传/识别统一走带超时的请求，防止大文件或慢网下请求无限挂起 */
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+/**
+ * 图片预处理：HEIC/HEIF 尝试用浏览器解码转成 JPEG（服务端识别模型无法解码 HEIC）；
+ * 大图压缩到长边 2048px、质量 0.85，避免手机原图上传缓慢触发超时。
+ * 转码失败时：HEIC 返回明确错误；其他格式降级为原图直传。
+ */
+async function normalizeImage(file: File): Promise<{ file: File } | { error: string }> {
+  const isHeic =
+    /\.hei[cf]$/i.test(file.name) || file.type === 'image/heic' || file.type === 'image/heif';
+  const isImage = file.type.startsWith('image/');
+  if (!isImage || (!isHeic && file.size <= 1.5 * 1024 * 1024)) return { file };
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, 2048 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return { file };
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+    if (!blob || (!isHeic && blob.size >= file.size)) return { file };
+    const name = file.name.replace(/\.[^.]+$/, '') + '.jpg';
+    return { file: new File([blob], name, { type: 'image/jpeg' }) };
+  } catch {
+    if (isHeic) {
+      return {
+        error:
+          '当前浏览器无法读取 HEIC 照片：请在 iPhone「设置-相机-格式」中改为「兼容性最佳」，或将照片另存为 jpg 后再试',
+      };
+    }
+    return { file };
+  }
+}
+
+/** 识别请求：最多 2 次（LLM 偶发抖动自动重试一次），150s 超时 */
+async function recognizeWithRetry(
+  fileId: number,
+): Promise<{ words?: Array<{ word: string; pos?: string }>; error?: string }> {
+  let lastError = new Error('识别失败，请稍后重试');
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const res = await fetchWithTimeout(
+        '/api/recognize',
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId }) },
+        150_000,
+      );
+      const data = (await res.json()) as {
+        words?: Array<{ word: string; pos?: string }>;
+        error?: string;
+      };
+      if (res.ok) return data;
+      lastError = new Error(data.error ?? '识别失败，请稍后重试');
+      if (res.status !== 500) break; // 业务性错误（如无文本内容）无需重试
+    } catch (e) {
+      lastError =
+        e instanceof DOMException && e.name === 'AbortError'
+          ? new Error('识别超时，请稍后重试')
+          : new Error('网络连接失败，请检查网络后重试');
+    }
+  }
+  throw lastError;
+}
+
   const handleFiles = useCallback(
     async (fileList: FileList | File[]) => {
       const files = Array.from(fileList).slice(0, 5);
@@ -123,9 +197,17 @@ export default function HomePage() {
         }, 350);
 
         try {
+          const normalized = await normalizeImage(file);
+          if ('error' in normalized) throw new Error(normalized.error);
+
           const formData = new FormData();
-          formData.append('file', file);
-          const uploadRes = await fetch('/api/upload', { method: 'POST', body: formData });
+          formData.append('file', normalized.file);
+          let uploadRes: Response;
+          try {
+            uploadRes = await fetchWithTimeout('/api/upload', { method: 'POST', body: formData }, 60_000);
+          } catch {
+            throw new Error('网络连接失败或上传超时，请检查网络后重试');
+          }
           const uploadData = (await uploadRes.json()) as {
             file?: { id: number; filename: string; batch_id: string };
             error?: string;
@@ -134,16 +216,7 @@ export default function HomePage() {
 
           patchTask(taskKey, { status: 'recognizing', progress: 92, fileId: uploadData.file.id, batchId: uploadData.file.batch_id });
 
-          const recRes = await fetch('/api/recognize', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fileId: uploadData.file.id }),
-          });
-          const recData = (await recRes.json()) as {
-            words?: Array<{ word: string; pos?: string }>;
-            error?: string;
-          };
-          if (!recRes.ok) throw new Error(recData.error ?? '识别失败');
+          const recData = await recognizeWithRetry(uploadData.file.id);
           clearInterval(timer);
           patchTask(taskKey, { status: 'done', progress: 100 });
 
