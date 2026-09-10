@@ -1,7 +1,7 @@
-import { Config, FetchClient, LLMClient, SearchClient, S3Storage } from 'coze-coding-dev-sdk';
+import { Config, FetchClient, LLMClient, S3Storage } from 'coze-coding-dev-sdk';
 import type { Message } from 'coze-coding-dev-sdk';
 
-export type RecognizedWord = { word: string; pos?: string };
+export type RecognizedWord = { word: string; pos?: string; translation?: string };
 
 /**
  * SDK 客户端一律惰性初始化（首次请求时才创建）。
@@ -12,7 +12,6 @@ let sdkConfig: Config | null = null;
 let storageInstance: S3Storage | null = null;
 let llmInstance: LLMClient | null = null;
 let fetchClientInstance: FetchClient | null = null;
-let searchClientInstance: SearchClient | null = null;
 
 function getSdkConfig(): Config {
   if (!sdkConfig) sdkConfig = new Config();
@@ -43,12 +42,6 @@ export function getLLM(): LLMClient {
 export function getFetchClient(): FetchClient {
   if (!fetchClientInstance) fetchClientInstance = new FetchClient(getSdkConfig());
   return fetchClientInstance;
-}
-
-/** 搜索客户端（无释义单词的中文释义匹配） */
-export function getSearchClient(): SearchClient {
-  if (!searchClientInstance) searchClientInstance = new SearchClient(getSdkConfig());
-  return searchClientInstance;
 }
 
 /**
@@ -318,73 +311,76 @@ export function extractWordsLocally(text: string): RecognizedWord[] {
   return words;
 }
 
-/** 通过搜索引擎 + LLM 提炼 1-2 个简洁中文释义（; 分隔） */
-export async function refineTranslation(word: string): Promise<string> {
-  let searchContext = '';
-  try {
-    const result = await getSearchClient().webSearch(`${word} 英语单词 中文意思 释义`, 5);
-    if (result?.web_items?.length) {
-      searchContext = result.web_items
-        .slice(0, 5)
-        .map((item) => `${item.title ?? ''} ${item.snippet ?? ''}`.trim())
-        .filter(Boolean)
-        .join('\n')
-        .slice(0, 2500);
-      console.info(`[translate] word=${word} 搜索成功, context长度=${searchContext.length}`);
-    } else {
-      console.warn(`[translate] word=${word} 搜索无结果`);
-    }
-  } catch (error) {
-    console.error(`[translate] 搜索失败 word=${word}`, error);
+/** 批量 LLM 直译：一次调用为多个单词生成 1-2 个简洁中文释义（; 分隔），替代逐词搜索+提炼的慢链路 */
+export async function translateWordsBatch(words: string[]): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  if (words.length === 0) return result;
+
+  // 每批 40 个词，单次调用输出量可控（约 600-800 token）
+  const CHUNK = 40;
+  const batches: string[][] = [];
+  for (let i = 0; i < words.length; i += CHUNK) {
+    batches.push(words.slice(i, i + CHUNK));
   }
 
-  const messages: Message[] = [
-    {
-      role: 'system',
-      content: '你是英汉词典编辑，负责给出权威简洁的中文释义。只输出释义文本，不要解释。',
-    },
-    {
-      role: 'user',
-      content:
-        `请为英文单词 "${word}" 给出 1-2 个最常见的中文释义。要求：\n` +
-        '1) 每个释义尽量 2-6 个字，简洁准确；\n' +
-        '2) 多个释义之间用「;」分隔，写在一行内；\n' +
-        '3) 不要带词性标注，不要序号，不要句号。\n' +
-        (searchContext ? `参考搜索结果：\n${searchContext}` : '无搜索结果，请依据你的词典知识给出。'),
-    },
-  ];
-  const response = await getLLM().invoke(messages, {
-    model: 'doubao-seed-2-0-mini-260215',
-    temperature: 0.2,
-  }).catch(async (error: unknown) => {
-    console.error(`[translate] word=${word} LLM 释义提炼失败`, error);
-    return { content: '' };
-  });
-  const translation = (response.content ?? '').trim().split('\n')[0].trim();
-  if (translation) return translation.slice(0, 80);
-  // LLM 不可用时，从真实搜索结果中直接提取释义
-  const fallback = extractTranslationFromSearch(searchContext);
-  if (fallback) {
-    console.info(`[translate] word=${word} 使用搜索结果提取释义: ${fallback}`);
+  const settled = await Promise.allSettled(
+    batches.map(async (batch) => {
+      const messages: Message[] = [
+        { role: 'system', content: '你是英汉词典数据库，只输出 JSON 数组，不要输出任何其他文字。' },
+        {
+          role: 'user',
+          content:
+            `为下列 ${batch.length} 个英文单词或短语各给出 1-2 个最常见的简体中文释义。要求：\n` +
+            '1) 每个释义 2-6 个字，简洁准确；多词短语给出整体含义（如 fossil fuels → 化石燃料）；\n' +
+            '2) 多个释义用「;」分隔，不带词性标注、不带序号、不带句号；\n' +
+            '3) 只输出 JSON 数组，格式：[{"word":"原词","translation":"释义"}]，word 必须与输入完全一致，不得遗漏。\n' +
+            `词表：${JSON.stringify(batch)}`,
+        },
+      ];
+      const response = await getLLM().invoke(messages, {
+        model: 'doubao-seed-2-0-mini-260215',
+        temperature: 0.1,
+      });
+      return parseTranslationPairs(String(response.content ?? ''));
+    }),
+  );
+
+  for (const item of settled) {
+    if (item.status === 'rejected') {
+      console.warn('[translate] 批量释义批次失败:', item.reason);
+      continue;
+    }
+    for (const [word, translation] of item.value) {
+      if (translation) result.set(word, translation);
+    }
   }
-  return fallback;
+  return result;
 }
 
-/** 从搜索结果文本中直接提取中文释义（降级路径，基于真实搜索数据） */
-export function extractTranslationFromSearch(searchContext: string): string {
-  if (!searchContext) return '';
-  for (const line of searchContext.split('\n')) {
-    // 匹配词典式释义片段，如 "n. 意外发现；机缘巧合" / "adj. 短暂的, 朝生暮死的"
-    const posMatch = line.match(/\b(?:n|v|adj|adv|vt|vi|prep)\.\s*([\u4e00-\u9fa5][\u4e00-\u9fa5;；、,，\s]{1,30})/);
-    if (posMatch) {
-      return posMatch[1]
-        .replace(/[;；]\s*/g, '; ')
-        .replace(/[、,，]\s*/g, '; ')
-        .replace(/[\s;]+$/, '')
-        .slice(0, 40);
+/** 解析批量释义 JSON 输出（兼容围栏代码块与截断容错） */
+function parseTranslationPairs(content: string): Map<string, string> {
+  const map = new Map<string, string>();
+  let raw = String(content ?? '').trim();
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced) raw = fenced[1].trim();
+  const start = raw.indexOf('[');
+  const end = raw.lastIndexOf(']');
+  if (start === -1 || end === -1 || end <= start) return map;
+  try {
+    const parsed: unknown = JSON.parse(raw.slice(start, end + 1));
+    if (!Array.isArray(parsed)) return map;
+    for (const item of parsed) {
+      if (!item || typeof item !== 'object') continue;
+      const rec = item as { word?: unknown; translation?: unknown };
+      if (typeof rec.word !== 'string' || typeof rec.translation !== 'string') continue;
+      const key = rec.word.trim().toLowerCase();
+      const translation = rec.translation.trim();
+      if (key && translation) map.set(key, translation);
     }
+  } catch {
+    // JSON 解析失败：返回空 Map，调用方按无释义兜底
   }
-  return '';
+  return map;
 }
 
 /** 从 FetchClient 响应中提取纯文本 */

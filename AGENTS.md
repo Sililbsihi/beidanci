@@ -17,7 +17,7 @@
 - Next.js 16 App Router + React 19 + TypeScript 5（前端为主，全部客户端交互）
 - Tailwind CSS v4（`@theme` 定义设计变量，见 `src/app/globals.css`）
 - Supabase（Drizzle schema 定义在 `src/storage/database/shared/schema.ts`，客户端 `src/storage/database/supabase-client.ts`）
-- `coze-coding-dev-sdk`（仅后端）：LLMClient（图片多模态 OCR / 文本选词 / 释义提炼）、FetchClient（解析 PDF/Office 文档）、SearchClient（释义搜索）、S3Storage（临时文件）
+- `coze-coding-dev-sdk`（仅后端）：LLMClient（图片多模态 OCR / 文本选词 / 释义批量直译）、FetchClient（解析 PDF/Office 文档）、S3Storage（临时文件）
 
 ## 构建与运行
 
@@ -39,7 +39,7 @@ src/
 │   └── api/
 │       ├── upload/route.ts       # POST 上传文件 → S3 临时存储 + upload_files 表
 │       ├── recognize/route.ts    # POST 识别单词（图片→LLM 多模态 OCR；文档→FetchClient 解析→LLM 选词）
-│       ├── translate/route.ts    # POST 批量搜索中文释义（webSearch→LLM 提炼 1-2 个）
+│       ├── translate/route.ts    # POST 批量 LLM 直译补齐缺失释义（1-2 个，; 分隔；仅兜底识别未覆盖的词）
 │       ├── words/route.ts        # GET 单词列表 / POST 批量加入背诵（新词插入；重复导入重置本轮进度重新背诵）
 │       ├── words/[id]/route.ts   # PATCH 编辑释义 / DELETE 删除单词
 │       ├── practice/today/route.ts # GET 今日队列（未背完在前、组内新词置顶 id 降序）+ 进度 + 最近导入批次统计
@@ -72,5 +72,5 @@ src/
 - S3 临时文件 key 统一 `tmp-words/{batchId}/{filename}`；`/api/cleanup` 仅作历史批次兜底
 - LLM 输出 JSON 需容错解析（`src/lib/word-app.ts` 的 `parseWordsJson`）
 - 释义格式：1-2 个中文释义以 `;` 分隔（如 `努力; 尝试`）
-- 图片识别用 `doubao-seed-2-0-lite-260215`（多模态），释义提炼用 `doubao-seed-2-0-mini-260215`（低成本）
+- 图片识别用 `doubao-seed-2-0-lite-260215`（多模态），释义批量直译用 `doubao-seed-2-0-mini-260215`（低成本，每批 40 词单次调用；识别完成即带释义返回，translate 仅兜底个别缺词）
 - 数据库凭证加载优先级：进程/平台注入 < `.env`（部署打包会向其追加平台变量，同名键后者覆盖前者） < `.env.local`（强制覆盖，最高优先）。用户自有 Supabase 凭证唯一权威来源是 `.env.local`，严禁把凭证写回 `.env`

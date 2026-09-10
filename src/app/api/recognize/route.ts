@@ -6,6 +6,7 @@ import {
   extractWordsFromText,
   getFetchClient,
   getStorage,
+  translateWordsBatch,
 } from '@/lib/word-app';
 
 export const runtime = 'nodejs';
@@ -66,6 +67,15 @@ export async function POST(request: NextRequest) {
         );
       }
       words = await extractWordsFromText(text);
+    }
+
+    // 批量直译释义：识别完成即带释义返回，免去前端逐词搜索的漫长等待（失败不阻塞，留给前端兜底）
+    try {
+      const translations = await translateWordsBatch(words.map((w) => w.word));
+      words = words.map((w) => ({ ...w, translation: translations.get(w.word) ?? '' }));
+      console.info(`[recognize] 批量释义完成 ${translations.size}/${words.length}`);
+    } catch (translationError) {
+      console.warn('[recognize] 批量释义失败，释义留给前端兜底', translationError);
     }
 
     // 文件即用即焚：单词已提取完毕，立即删除对象存储文件并标记记录为 deleted（失败不阻塞返回）

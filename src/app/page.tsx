@@ -155,7 +155,7 @@ async function normalizeImage(file: File): Promise<{ file: File } | { error: str
 /** 识别请求：最多 2 次（LLM 偶发抖动自动重试一次），150s 超时 */
 async function recognizeWithRetry(
   fileId: number,
-): Promise<{ words?: Array<{ word: string; pos?: string }>; error?: string }> {
+): Promise<{ words?: Array<{ word: string; pos?: string; translation?: string }>; error?: string }> {
   let lastError = new Error('识别失败，请稍后重试');
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
@@ -165,7 +165,7 @@ async function recognizeWithRetry(
         150_000,
       );
       const data = (await res.json()) as {
-        words?: Array<{ word: string; pos?: string }>;
+        words?: Array<{ word: string; pos?: string; translation?: string }>;
         error?: string;
       };
       if (res.ok) return data;
@@ -227,8 +227,8 @@ async function recognizeWithRetry(
               next.push({
                 word: item.word,
                 pos: item.pos,
-                translation: '',
-                translationSource: 'none',
+                translation: item.translation ?? '',
+                translationSource: item.translation ? 'search' : 'none',
                 sourceFile: uploadData.file?.filename,
                 batchId: uploadData.file?.batch_id,
               });

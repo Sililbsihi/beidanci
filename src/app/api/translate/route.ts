@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { refineTranslation } from '@/lib/word-app';
+import { translateWordsBatch } from '@/lib/word-app';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -10,7 +10,7 @@ interface TranslationResult {
   source: 'search' | 'none';
 }
 
-/** POST /api/translate 批量为无释义单词搜索中文释义（1-2 个，; 分隔） */
+/** POST /api/translate 批量 LLM 直译补齐缺失释义（1-2 个，; 分隔） */
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as { words?: string[] };
@@ -23,23 +23,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ translations: [] });
     }
 
-    // 分批并发（每批 4 个），避免并发过高触发限流
-    const results: TranslationResult[] = [];
-    for (let i = 0; i < words.length; i += 4) {
-      const batch = words.slice(i, i + 4);
-      const settled = await Promise.allSettled(batch.map((word) => refineTranslation(word)));
-      settled.forEach((item, index) => {
-        const word = batch[index];
-        if (item.status === 'rejected') {
-          console.error(`[translate] word=${word} 释义提炼失败:`, item.reason);
-        }
-        const translation = item.status === 'fulfilled' ? item.value : '';
-        if (!translation) {
-          console.warn(`[translate] word=${word} 释义为空 (status=${item.status})`);
-        }
-        results.push({ word, translation, source: translation ? 'search' : 'none' });
-      });
-    }
+    // 一次调用批量直译（每批 40 词并行），替代旧的逐词搜索+提炼
+    const map = await translateWordsBatch(words);
+    const results: TranslationResult[] = words.map((word) => {
+      const translation = map.get(word) ?? '';
+      if (!translation) console.warn(`[translate] word=${word} 释义为空`);
+      return { word, translation, source: translation ? 'search' : 'none' };
+    });
 
     return NextResponse.json({ translations: results });
   } catch (error) {
