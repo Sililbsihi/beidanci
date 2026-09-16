@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
-import { probeWordsNewColumns } from '@/lib/word-app';
+import { probeWordsNewColumns, probeWordsStarred } from '@/lib/word-app';
 
 export const runtime = 'nodejs';
 
@@ -18,6 +18,8 @@ interface WordRow {
   status: string;
   target_recite?: number;
   created_at: string;
+  /** 星标（words.starred 列缺失时为 undefined，前端据此隐藏星标入口） */
+  starred?: boolean;
   /** 服务端计算的完成态：recite_count 是否达到本轮目标（重复导入后目标提升，需再背一遍） */
   _done: boolean;
 }
@@ -32,10 +34,12 @@ export async function GET() {
   try {
     const client = getSupabaseClient();
     const hasNewColumns = await probeWordsNewColumns(client);
+    const hasStarred = await probeWordsStarred(client);
 
-    const selectCols = hasNewColumns
+    let selectCols = hasNewColumns
       ? 'id, word, pos, translation, translation_source, source_file, batch_id, correct_round, recite_count, total_typed, status, target_recite, created_at'
       : 'id, word, pos, translation, translation_source, source_file, batch_id, correct_round, recite_count, total_typed, status, created_at';
+    if (hasStarred) selectCols += ', starred';
 
     const { data, error } = await client.from('words').select(selectCols).order('id', { ascending: true });
     if (error) throw new Error(`查询队列失败: ${error.message}`);

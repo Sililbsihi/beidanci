@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
-import { startOfToday, dayKey, probeWordsNewColumns } from '@/lib/word-app';
+import { startOfToday, dayKey, probeWordsNewColumns, probeWordsStarred } from '@/lib/word-app';
 
 export const runtime = 'nodejs';
 
@@ -50,14 +50,16 @@ export async function GET() {
   try {
     const client = getSupabaseClient();
     const hasNewColumns = await probeWordsNewColumns(client);
+    const hasStarred = await probeWordsStarred(client);
 
     const weekAgo = new Date();
     weekAgo.setDate(weekAgo.getDate() - 6);
     weekAgo.setHours(0, 0, 0, 0);
 
-    const wordCols = hasNewColumns
+    let wordCols = hasNewColumns
       ? 'id, word, pos, translation, recite_count, total_typed, import_count, recited_at'
       : 'id, word, pos, translation, recite_count, total_typed, recited_at';
+    if (hasStarred) wordCols += ', starred';
 
     const [wordsRes, recordsRes, weekRes, mistakesRes] = await Promise.all([
       client.from('words').select(wordCols).order('created_at', { ascending: false }),
@@ -113,7 +115,7 @@ export async function GET() {
       if (history.length >= 30) break;
     }
 
-    // 排行榜 1：犯错最多（practice_records round_index=0 错误流水按词聚合）
+    // 排行榜 1：犯错最多（practice_records round_index=0 错误流水按词聚合），附带释义供拼写提示（wordMeta 复用上方的 Map）
     const mistakeCounts = new Map<string, number>();
     for (const m of mistakeRecords) {
       mistakeCounts.set(m.word, (mistakeCounts.get(m.word) ?? 0) + 1);
@@ -121,13 +123,13 @@ export async function GET() {
     const mistakes = [...mistakeCounts.entries()]
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
-      .map(([word, count]) => ({ word, count }));
+      .map(([word, count]) => ({ word, count, translation: wordMeta.get(word)?.translation ?? null }));
 
     // 排行榜 2：最长的单词
     const longest = [...words]
       .sort((a, b) => b.word.length - a.word.length)
       .slice(0, 5)
-      .map((w) => ({ word: w.word, length: w.word.length }));
+      .map((w) => ({ word: w.word, length: w.word.length, translation: w.translation ?? null }));
 
     // 排行榜 3：导入重复次数最多（import_count > 1）
     const reimported = hasNewColumns
@@ -135,7 +137,15 @@ export async function GET() {
           .filter((w) => (w.import_count ?? 1) > 1)
           .sort((a, b) => (b.import_count ?? 1) - (a.import_count ?? 1))
           .slice(0, 5)
-          .map((w) => ({ word: w.word, count: w.import_count ?? 1 }))
+          .map((w) => ({ word: w.word, count: w.import_count ?? 1, translation: w.translation ?? null }))
+      : [];
+
+    // 星标词（星系展示用）
+    const starredWords = hasStarred
+      ? words
+          .filter((w) => (w as { starred?: boolean }).starred === true)
+          .slice(0, 12)
+          .map((w) => ({ id: w.id, word: w.word, pos: w.pos, translation: w.translation }))
       : [];
 
     return NextResponse.json({
@@ -149,6 +159,7 @@ export async function GET() {
       history: history.slice(0, 10),
       weekly: buildWeekly(weekRecords),
       rankings: { mistakes, longest, reimported },
+      starredWords,
     });
   } catch (error) {
     console.error('[records] 查询失败', error);

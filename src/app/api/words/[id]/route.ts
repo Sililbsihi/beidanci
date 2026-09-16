@@ -16,8 +16,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: '无效的单词 ID' }, { status: 400 });
     }
 
-    const body = (await request.json()) as { word?: string; pos?: string; translation?: string };
-    const updates: Record<string, string> = {};
+    const body = (await request.json()) as { word?: string; pos?: string; translation?: string; starred?: boolean };
+    const updates: Record<string, string | boolean> = {};
     if (typeof body.word === 'string') {
       const cleaned = body.word.trim().toLowerCase().replace(/[^a-z'-]/g, '');
       if (cleaned.length < 1 || cleaned.length > 30) {
@@ -27,6 +27,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     }
     if (typeof body.pos === 'string') updates.pos = body.pos.trim().slice(0, 20);
     if (typeof body.translation === 'string') updates.translation = body.translation.trim().slice(0, 200);
+    if (typeof body.starred === 'boolean') updates.starred = body.starred;
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: '没有需要更新的字段' }, { status: 400 });
     }
@@ -36,7 +37,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       .from('words')
       .update(updates)
       .eq('id', wordId)
-      .select('id, word, pos, translation, translation_source, source_file, correct_round, recite_count, total_typed, status')
+      .select('id, word, pos, translation, translation_source, source_file, correct_round, recite_count, total_typed, status, starred')
       .maybeSingle();
     if (error) throw new Error(`更新单词失败: ${error.message}`);
     if (!data) return NextResponse.json({ error: '单词不存在' }, { status: 404 });

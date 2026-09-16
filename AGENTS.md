@@ -5,19 +5,19 @@
 「果冻单词」——白色纸感主题的背单词 Web 应用，兼具彩虹色线条与透明果冻效果。
 
 核心能力：
-1. 多格式文件上传（图片 jpg/png/jpeg、Word、PDF、PPT、Excel）→ 提取英文单词
-2. 无中文释义的单词自动通过 Web 搜索匹配 1-2 个简洁释义（`;` 分隔）
+1. 多格式文件上传（图片 jpg/png/jpeg、Word、PDF、PPT、Excel）→ 提取英文单词；上传页支持点击/拖拽/Ctrl+V 粘贴（截图、复制的文件、英文文本自动包装 txt）
+2. 识别完成即带释义返回（LLM 批量直译：12 词/批 + 16 路并发池，100 词约 3 秒）；`/api/translate` 仅作背诵页兜底补译
 3. 单词卡"照抄键入"背诵：英文单词大字展示 + 逐字母果冻格子键入，正确拼写 3 遍 = 已背诵 1 遍（可累加），拼错则本轮清零重抄
-4. 背诵队列：新加入的单词排最上方，未背完的优先于已背完；重复导入的单词不跳过——重置本轮进度重新背诵（历史累计遍数保留）
+4. 背诵队列：新加入的单词排最上方，未背完的优先于已背完；重复导入的单词不跳过——重置本轮进度重新背诵（历史累计遍数保留）；背诵页可星标单词
 5. 文件即用即焚：上传文件存对象存储（key 前缀 `tmp-words/`），识别成功返回词列表后立即删除 S3 对象并标记 upload_files 为 deleted
-6. 背诵记录：统计卡 + 一周背诵趋势图 + 今日记录 + 按日期分组历史 + 趣味排行（犯错最多/最长单词/重复导入最多）
+6. 背诵记录：紧凑统计条 + 星标词星系（球状连线缓慢旋转、悬浮放大、点击展示词源/词根/释义/音乐剧台词，LLM 生成并 localStorage 缓存）+ 一周趋势图 + 气泡排行榜（hover 互动、点击当场拼写、拼错重拼，纯前端不写库）+ 今日记录 + 按日期分组历史
 
 ## 技术栈
 
 - Next.js 16 App Router + React 19 + TypeScript 5（前端为主，全部客户端交互）
 - Tailwind CSS v4（`@theme` 定义设计变量，见 `src/app/globals.css`）
 - Supabase（Drizzle schema 定义在 `src/storage/database/shared/schema.ts`，客户端 `src/storage/database/supabase-client.ts`）
-- `coze-coding-dev-sdk`（仅后端）：LLMClient（图片多模态 OCR / 文本选词 / 释义批量直译）、FetchClient（解析 PDF/Office 文档）、S3Storage（临时文件）
+- `coze-coding-dev-sdk`（仅后端）：LLMClient（图片多模态 OCR / 文本选词 / 释义批量直译 / 词源与剧目台词生成）、FetchClient（解析 PDF/Office 文档）、S3Storage（临时文件）
 
 ## 构建与运行
 
@@ -41,10 +41,11 @@ src/
 │       ├── recognize/route.ts    # POST 识别单词（图片→LLM 多模态 OCR；文档→FetchClient 解析→LLM 选词）
 │       ├── translate/route.ts    # POST 批量 LLM 直译补齐缺失释义（小批 12 词 + 16 路并发池，100 词约 3 秒；默认异步回写 words 表只补空释义）
 │       ├── words/route.ts        # GET 单词列表 / POST 批量加入背诵（新词插入；重复导入重置本轮进度重新背诵）
-│       ├── words/[id]/route.ts   # PATCH 编辑释义 / DELETE 删除单词
+│       ├── words/[id]/route.ts   # PATCH 编辑释义 / 星标 starred / DELETE 删除单词
 │       ├── practice/today/route.ts # GET 今日队列（未背完在前、组内新词置顶 id 降序）+ 进度 + 最近导入批次统计
 │       ├── practice/type/route.ts  # POST 拼写校验（错误清零重抄并写错误流水；正确+1，满 3 遍完成一轮背诵）
-│       ├── records/route.ts      # GET 统计 + 一周趋势 + 今日记录 + 历史分组 + 三个排行榜
+│       ├── records/route.ts      # GET 统计 + 星标词列表 + 一周趋势 + 今日记录 + 历史分组 + 三个排行榜（含释义供气泡拼写提示）
+│       ├── word-detail/route.ts  # POST LLM 生成单词详情（词源/词根/台词出处/角色/台词中文翻译），记录页星系弹窗用
 │       └── cleanup/route.ts      # POST 删除批次临时文件（兜底接口，识别即焚后通常无需调用）
 ├── components/site-header.tsx    # 顶部导航（当前页高亮）
 ├── lib/word-app.ts               # SDK 客户端单例 + 识别/释义/JSON 解析等共享函数
@@ -53,7 +54,7 @@ src/
 
 ## 数据模型（3 张表）
 
-- `words`：word（小写唯一）、pos、translation、translation_source（upload/search）、source_file、batch_id、correct_round（当前轮 0-3）、recite_count（已背诵轮数）、target_recite（本轮需完成遍数，重复导入时提升为 recite_count+1）、import_count（导入次数）、total_typed（累计正确拼写数）、status（pending/practicing/done）、recited_at（最后完成一轮的时间，用于"今日记录"）
+- `words`：word（小写唯一）、pos、translation、translation_source（upload/search）、source_file、batch_id、correct_round（当前轮 0-3）、recite_count（已背诵轮数）、target_recite（本轮需完成遍数，重复导入时提升为 recite_count+1）、import_count（导入次数）、total_typed（累计正确拼写数）、status（pending/practicing/done）、starred（星标，记录页组成星系）、recited_at（最后完成一轮的时间，用于"今日记录"）
 - `upload_files`：filename、file_key（S3 key）、file_type（image/pdf/word/ppt/excel/text）、batch_id、status（active/deleted）、deleted_at
 - `practice_records`：word_id（cascade）、word、round_index（本轮第几遍 1-3，**0 表示拼错流水**，用于"犯错最多"排行）、session_no（第几次背诵轮）、created_at；round_index=3 的记录代表完成一轮背诵（历史分组、连续天数与一周趋势以此为准）
 
@@ -68,6 +69,7 @@ src/
 ## 注意事项
 
 - 用户自有 Supabase 与平台库 schema 双轨：`coze-coding-ai db` 系列命令固定连平台 dev 库；用户库的结构变更必须提供 SQL 由用户在 Supabase Dashboard SQL Editor 执行。words 表新增列 `target_recite`/`import_count` 时，代码通过 `src/lib/word-app.ts` 的 `probeWordsNewColumns` 运行时探测（进程内缓存），列缺失自动降级为旧行为（重复导入跳过、无导入次数排行），执行过 DDL 后无需重启即自动启用新逻辑（重新部署进程即重新探测）
+- `starred` 列同理走 `probeWordsStarred` 探测降级：列缺失时 records 接口不返回星标词、today 接口不带 starred 字段、背诵页隐藏星标入口（`starredReady` 状态）、PATCH 星标报错由前端乐观更新回滚兜底；用户库需执行 `ALTER TABLE words ADD COLUMN IF NOT EXISTS starred boolean NOT NULL DEFAULT false;`
 - 上传文件即用即焚：`/api/recognize` 成功返回词列表前删除 S3 对象（`getStorage().deleteFile({ fileKey })`）并标记 upload_files status=deleted；删除失败仅告警不阻塞识别
 - S3 临时文件 key 统一 `tmp-words/{batchId}/{filename}`；`/api/cleanup` 仅作历史批次兜底
 - LLM 输出 JSON 需容错解析（`src/lib/word-app.ts` 的 `parseWordsJson`）

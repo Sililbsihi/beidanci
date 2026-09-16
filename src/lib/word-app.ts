@@ -72,6 +72,31 @@ export async function probeWordsNewColumns(client: unknown): Promise<boolean> {
   return wordsNewColumns;
 }
 
+let wordsStarred: boolean | null = null;
+
+/** 星标字段就绪（用户在 Supabase 执行过 starred 迁移 SQL 后为 true） */
+export function wordsStarredReady(): boolean {
+  return wordsStarred === true;
+}
+
+/** 探测 words 表是否已包含 starred 列，未建列时星标功能降级隐藏 */
+export async function probeWordsStarred(client: unknown): Promise<boolean> {
+  const c = client as {
+    from: (table: string) => { select: (cols: string) => { limit: (n: number) => Promise<{ error: { message: string } | null }> } };
+  };
+  if (wordsStarred !== null) return wordsStarred;
+  try {
+    const { error } = await c.from('words').select('starred').limit(1);
+    wordsStarred = !error;
+  } catch {
+    wordsStarred = false;
+  }
+  if (!wordsStarred) {
+    console.warn('[schema] words 表缺少 starred 列，星标功能降级隐藏');
+  }
+  return wordsStarred;
+}
+
 const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'];
 
 /** 根据文件名与 MIME 判定业务文件类型 */

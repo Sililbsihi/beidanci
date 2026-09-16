@@ -1,4 +1,4 @@
-import { pgTable, serial, timestamp, varchar, text, integer, index, foreignKey } from "drizzle-orm/pg-core"
+import { pgTable, serial, timestamp, varchar, text, integer, boolean, index, foreignKey } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 
 
@@ -33,6 +33,7 @@ export const words = pgTable("words", {
 	status: varchar({ length: 20 }).default('pending').notNull(),
 	targetRecite: integer("target_recite").default(1).notNull(),
 	importCount: integer("import_count").default(1).notNull(),
+	starred: boolean("starred").default(false).notNull(),
 	recitedAt: timestamp("recited_at", { withTimezone: true, mode: 'string' }),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 });

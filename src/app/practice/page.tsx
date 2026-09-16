@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Target, Info, PencilLine, Lightbulb, SkipForward, CircleCheck, PartyPopper, BookOpen, Repeat, FileUp, Sparkles,
+  Target, Info, PencilLine, Lightbulb, SkipForward, CircleCheck, PartyPopper, BookOpen, Repeat, FileUp, Sparkles, Star,
 } from 'lucide-react';
 
 interface WordRow {
@@ -19,6 +19,8 @@ interface WordRow {
   total_typed: number;
   status: string;
   created_at?: string;
+  /** 星标（记录页星系展示） */
+  starred?: boolean;
   /** 服务端计算的完成态：本轮背诵目标已达成（重复导入会重新变为未完成） */
   _done: boolean;
   /** 本地渲染专用：乐观更新版本号（不落库），用于丢弃迟到的服务端响应 */
@@ -53,6 +55,8 @@ export default function PracticePage() {
   const [enterPop, setEnterPop] = useState(false);
   const [loading, setLoading] = useState(true);
   const [roundAllDone, setRoundAllDone] = useState(false);
+  /** 星标功能可用性：words.starred 列缺失（未执行 DDL）时为 false，隐藏星标入口 */
+  const [starredReady, setStarredReady] = useState(false);
 
   const current = useMemo(() => words.find((w) => w.id === currentId) ?? null, [words, currentId]);
 
@@ -80,6 +84,7 @@ export default function PracticePage() {
       const data = (await res.json()) as { words?: WordRow[] };
       const list = data.words ?? [];
       setWords(list);
+      setStarredReady(list.some((w) => w.starred !== undefined));
       setCurrentId((prevId) => {
         const prev = prevId ? list.find((w) => w.id === prevId) : undefined;
         // 刷新保留位置的前提是该词还没完成本轮；否则定位队列中第一个未完成的词（严格顺序）
@@ -179,6 +184,22 @@ export default function PracticePage() {
     },
     [translating],
   );
+
+  /** 星标/取消星标：星标词会在记录页组成星系；乐观更新，失败回滚 */
+  const toggleStarred = useCallback(async (row: WordRow) => {
+    const next = !row.starred;
+    setWords((prev) => prev.map((w) => (w.id === row.id ? { ...w, starred: next } : w)));
+    try {
+      const res = await fetch(`/api/words/${row.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ starred: next }),
+      });
+      if (!res.ok) throw new Error('star failed');
+    } catch {
+      setWords((prev) => prev.map((w) => (w.id === row.id ? { ...w, starred: !next } : w)));
+    }
+  }, []);
 
   /** 切换单词后聚焦键入区，并播放轻微果冻弹入动画（拼错的震动与此互斥） */
   useEffect(() => {
@@ -441,9 +462,23 @@ export default function PracticePage() {
                     </span>
                   )}
                 </div>
-                <span className="text-xs font-medium text-on-surface-variant">
-                  第 {Math.min(current.correct_round + 1, ROUNDS_PER_RECITE)} 遍 / 共 {ROUNDS_PER_RECITE} 遍
-                </span>
+                <div className="flex items-center gap-2.5">
+                  {starredReady && (
+                    <button
+                      type="button"
+                      onClick={() => void toggleStarred(current)}
+                      title={current.starred ? '取消星标' : '星标这个词（记录页组成星系）'}
+                      className="border-none bg-transparent p-1 rounded-full transition-transform active:scale-90 cursor-pointer"
+                    >
+                      <Star
+                        className={`w-5 h-5 transition-colors ${current.starred ? 'text-[#E9C96A] fill-[#E9C96A]' : 'text-on-surface-variant/40 hover:text-[#E9C96A]'}`}
+                      />
+                    </button>
+                  )}
+                  <span className="text-xs font-medium text-on-surface-variant">
+                    第 {Math.min(current.correct_round + 1, ROUNDS_PER_RECITE)} 遍 / 共 {ROUNDS_PER_RECITE} 遍
+                  </span>
+                </div>
               </div>
 
               {/* 英文单词展示区（为主，大号）：照着此单词逐字母抄写 */}
@@ -614,8 +649,9 @@ export default function PracticePage() {
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className={`font-display font-bold text-sm ${finished ? 'text-success' : 'text-on-surface'}`}>
-                      {w.word}
+                    <span className={`font-display font-bold text-sm flex items-center gap-1 min-w-0 ${finished ? 'text-success' : 'text-on-surface'}`}>
+                      {w.starred && <Star className="w-3 h-3 text-[#E9C96A] fill-[#E9C96A] shrink-0" />}
+                      <span className="truncate">{w.word}</span>
                     </span>
                     {finished ? (
                       <CircleCheck className="w-4 h-4 text-success shrink-0" />
