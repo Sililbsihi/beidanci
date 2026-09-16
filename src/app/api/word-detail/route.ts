@@ -63,12 +63,15 @@ export async function POST(request: NextRequest) {
       },
     ];
 
-    const response = await getLLM().invoke(messages, {
-      model: 'doubao-seed-2-0-mini-260215',
-      temperature: 0.7,
-    });
-
-    const detail = parseDetailJson(String(response.content ?? ''));
+    // LLM 输出偶发不稳定（截断/夹带文字导致解析为空），自动重试一次再判失败
+    let detail = EMPTY_DETAIL;
+    for (let attempt = 0; attempt < 2 && !detail.etymology && !detail.sentence; attempt += 1) {
+      const response = await getLLM().invoke(messages, {
+        model: 'doubao-seed-2-0-mini-260215',
+        temperature: 0.7,
+      });
+      detail = parseDetailJson(String(response.content ?? ''));
+    }
     if (!detail.etymology && !detail.sentence) {
       return NextResponse.json({ error: '词源生成失败，请稍后再试' }, { status: 502 });
     }

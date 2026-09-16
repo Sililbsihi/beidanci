@@ -69,7 +69,8 @@ src/
 ## 注意事项
 
 - 用户自有 Supabase 与平台库 schema 双轨：`coze-coding-ai db` 系列命令固定连平台 dev 库；用户库的结构变更必须提供 SQL 由用户在 Supabase Dashboard SQL Editor 执行。words 表新增列 `target_recite`/`import_count` 时，代码通过 `src/lib/word-app.ts` 的 `probeWordsNewColumns` 运行时探测（进程内缓存），列缺失自动降级为旧行为（重复导入跳过、无导入次数排行），执行过 DDL 后无需重启即自动启用新逻辑（重新部署进程即重新探测）
-- `starred` 列同理走 `probeWordsStarred` 探测降级：列缺失时 records 接口不返回星标词、today 接口不带 starred 字段、背诵页隐藏星标入口（`starredReady` 状态）、PATCH 星标报错由前端乐观更新回滚兜底；用户库需执行 `ALTER TABLE words ADD COLUMN IF NOT EXISTS starred boolean NOT NULL DEFAULT false;`
+- `starred` 列同理走 `probeWordsStarred` 探测降级：列缺失时 records 接口不返回星标词、today 接口不带 starred 字段、背诵页隐藏星标入口（`starredReady` 状态）、PATCH 星标报错由前端乐观更新回滚兜底；列缺失的库需执行 `ALTER TABLE words ADD COLUMN IF NOT EXISTS starred boolean NOT NULL DEFAULT false;`
+- 数据库已于 2026-09 迁移至 Supabase 官网项目（ref `oalgwdejwsjjklwdymhk`，凭证在 `.env.local`，含 starred/target_recite/import_count 列）；旧火山引擎实例仅为历史存档，平台注入的 COZE_SUPABASE_* 指向平台库，均被 `.env.local` 强制覆盖
 - 上传文件即用即焚：`/api/recognize` 成功返回词列表前删除 S3 对象（`getStorage().deleteFile({ fileKey })`）并标记 upload_files status=deleted；删除失败仅告警不阻塞识别
 - S3 临时文件 key 统一 `tmp-words/{batchId}/{filename}`；`/api/cleanup` 仅作历史批次兜底
 - LLM 输出 JSON 需容错解析（`src/lib/word-app.ts` 的 `parseWordsJson`）
