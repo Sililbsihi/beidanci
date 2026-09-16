@@ -55,8 +55,8 @@ export default function PracticePage() {
   const [enterPop, setEnterPop] = useState(false);
   const [loading, setLoading] = useState(true);
   const [roundAllDone, setRoundAllDone] = useState(false);
-  /** 星标功能可用性：words.starred 列缺失（未执行 DDL）时为 false，隐藏星标入口 */
-  const [starredReady, setStarredReady] = useState(false);
+  /** 星标功能可用性：由队列数据实时派生（words 带 starred 字段即可用），避免热更新/旧会话下状态卡死 */
+  const starredReady = useMemo(() => words.some((w) => w.starred !== undefined), [words]);
 
   const current = useMemo(() => words.find((w) => w.id === currentId) ?? null, [words, currentId]);
 
@@ -84,7 +84,6 @@ export default function PracticePage() {
       const data = (await res.json()) as { words?: WordRow[] };
       const list = data.words ?? [];
       setWords(list);
-      setStarredReady(list.some((w) => w.starred !== undefined));
       setCurrentId((prevId) => {
         const prev = prevId ? list.find((w) => w.id === prevId) : undefined;
         // 刷新保留位置的前提是该词还没完成本轮；否则定位队列中第一个未完成的词（严格顺序）
