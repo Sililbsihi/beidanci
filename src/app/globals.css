@@ -123,13 +123,33 @@ body {
 .animate-caret-blink { animation: caret-blink 1.1s ease-in-out infinite; }
 .animate-float-soft { animation: float-soft 3s ease-in-out infinite; }
 
-/* 星词星系 */
-@keyframes galaxy-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+/* 星词行星系 */
+/* 中心恒星：暖黄光球 + 呼吸光晕 */
+.sun-core {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 32%, #FFF6E0 0%, #F2CE8A 45%, #E0A96B 100%);
+  animation: sun-pulse 4s ease-in-out infinite;
 }
-.animate-galaxy-spin { animation: galaxy-spin 90s linear infinite; }
-.animate-galaxy-spin-reverse { animation: galaxy-spin 90s linear infinite reverse; }
+@keyframes sun-pulse {
+  0%, 100% { box-shadow: 0 0 16px rgba(233, 201, 106, 0.6), 0 0 42px rgba(233, 201, 106, 0.26); }
+  50% { box-shadow: 0 0 24px rgba(233, 201, 106, 0.8), 0 0 60px rgba(233, 201, 106, 0.4); }
+}
+/* 土星式倾斜光环（正交投影压扁为椭圆，半透明叠于行星之上） */
+.planet-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 175%;
+  height: 175%;
+  transform: translate(-50%, -50%) rotateX(74deg);
+  border-radius: 50%;
+  border-width: 3px;
+  border-style: solid;
+  box-shadow: 0 0 0 1.5px rgba(139, 118, 98, 0.16), inset 0 0 0 1.5px rgba(139, 118, 98, 0.16);
+  pointer-events: none;
+}
 
 /* 果冻格子光标 */
 .cell-active {

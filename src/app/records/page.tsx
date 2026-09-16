@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BookOpen, Repeat, Flame, Sun, ArrowRight, History, CalendarDays, TrendingUp, Trophy, AlertCircle, Ruler, Repeat2,
   Star, X, Sparkles, BookMarked, Theater, CheckCircle2,
@@ -311,71 +311,223 @@ function SpellModal({ word, translation, onClose }: { word: string; translation:
   );
 }
 
-/** 星词星系：星标词以球体彼此连线，整体缓慢旋转，悬浮放大，点击查看词源与剧目台词 */
+/** 行星外观皮肤：纸感和谐色板（低饱和，避免霓虹），kind 决定表面画法 */
+type PlanetKind = 'rocky' | 'gas' | 'ringed' | 'ice';
+interface PlanetSkin { kind: PlanetKind; base: string; dark: string; light: string; }
+
+const PLANET_SKINS: PlanetSkin[] = [
+  { kind: 'rocky', base: '#C96F3D', dark: '#8F4A26', light: '#E89B6B' },
+  { kind: 'gas', base: '#7FA3C9', dark: '#53719A', light: '#A9C4DE' },
+  { kind: 'ice', base: '#AFCBE0', dark: '#7F9FB8', light: '#EAF4FA' },
+  { kind: 'ringed', base: '#E9C96A', dark: '#B49A45', light: '#F5E3A8' },
+  { kind: 'rocky', base: '#A88BC9', dark: '#7C5FA3', light: '#C9B2E3' },
+  { kind: 'gas', base: '#7E9F7A', dark: '#58795A', light: '#A8C2A3' },
+  { kind: 'ringed', base: '#E57373', dark: '#B54F4F', light: '#F2A19C' },
+  { kind: 'ice', base: '#9FB8CE', dark: '#6E8CA6', light: '#D9E7F2' },
+];
+
+function stableHash(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+function hexA(hex: string, alpha: number): string {
+  const v = hex.replace('#', '');
+  const r = parseInt(v.slice(0, 2), 16);
+  const g = parseInt(v.slice(2, 4), 16);
+  const b = parseInt(v.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+/** 多层渐变绘制行星表面：高光 + 陨石坑/条纹/冰原 */
+function planetBackground(skin: PlanetSkin): string {
+  const { base, dark, light } = skin;
+  const highlight = 'radial-gradient(circle at 30% 26%, rgba(255,252,245,0.85) 0%, rgba(255,252,245,0) 42%)';
+  if (skin.kind === 'rocky') {
+    return [
+      highlight,
+      `radial-gradient(circle at 66% 70%, ${dark} 0 7%, rgba(0,0,0,0) 8%)`,
+      `radial-gradient(circle at 36% 62%, ${dark} 0 5%, rgba(0,0,0,0) 6%)`,
+      `radial-gradient(circle at 58% 30%, ${dark} 0 4%, rgba(0,0,0,0) 5%)`,
+      `radial-gradient(circle at 34% 30%, ${light} 0%, ${base} 58%, ${dark} 100%)`,
+    ].join(', ');
+  }
+  if (skin.kind === 'gas' || skin.kind === 'ringed') {
+    return [
+      highlight,
+      `linear-gradient(180deg, ${light} 0 16%, ${base} 16% 34%, ${dark} 34% 52%, ${base} 52% 68%, ${light} 68% 84%, ${dark} 84% 100%)`,
+    ].join(', ');
+  }
+  return [
+    'radial-gradient(circle at 30% 24%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0) 46%)',
+    `radial-gradient(circle at 70% 78%, ${dark} 0 9%, rgba(0,0,0,0) 10%)`,
+    `linear-gradient(160deg, ${light} 0%, ${base} 48%, ${dark} 100%)`,
+  ].join(', ');
+}
+
+interface PlanetSpec {
+  word: string; id: number; pos: string | null; translation: string | null;
+  skin: PlanetSkin; orbitR: number; angle0: number; speed: number; size: number;
+  fontSize: number; textColor: string; t0: string; z0: number; o0: number;
+}
+interface BeltSpec { orbitR: number; angle0: number; speed: number; size: number; aspect: number; t0: string; z0: number; o0: number; }
+
+const GALAXY = { SIZE: 380, TILT: 0.44, ORBITS: [72, 116, 158] as const, SPEEDS: [0.32, 0.23, 0.16] as const, BELT_R: 137, BELT_COUNT: 26 };
+
+/** 星词行星系：星标词化作行星沿椭圆轨道公转（近大远小/后方虚化/前后遮挡的景深效果），透明背景 + 真实行星形状 + 环绕小行星带；悬浮放大，点击查看词源与剧目台词 */
 function StarGalaxy({ words, onPick }: { words: StarredWord[]; onPick: (w: StarredWord) => void }) {
-  const SIZE = 360;
-  const center = SIZE / 2;
-  const n = words.length;
-  const placed = words.map((w, i) => {
-    const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
-    const radius = n <= 5 ? 108 : i % 2 === 0 ? 132 : 88;
-    const ballSize = w.word.length > 9 ? 74 : 62;
-    const x = center + radius * Math.cos(angle) - ballSize / 2;
-    const y = center + radius * Math.sin(angle) - ballSize / 2;
-    return { ...w, angle, radius, x, y, ballSize };
-  });
+  const { SIZE, TILT, ORBITS, SPEEDS, BELT_R, BELT_COUNT } = GALAXY;
+  const CX = SIZE / 2;
+  const CY = SIZE / 2;
+  const hoveredRef = useRef<string | null>(null);
+  const planetRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const beltRefs = useRef<Array<HTMLSpanElement | null>>([]);
+
+  const planets = useMemo<PlanetSpec[]>(() => {
+    const slotCount = Math.max(Math.ceil(words.length / ORBITS.length), 1);
+    return words.map((w, i) => {
+      const h = stableHash(w.word);
+      const orbitIdx = i % ORBITS.length;
+      const slot = Math.floor(i / ORBITS.length);
+      const slotAngle = (Math.PI * 2) / slotCount;
+      const angle0 = -Math.PI / 2 + slot * slotAngle + ((h % 100) / 100 - 0.5) * slotAngle * 0.9;
+      const size = ORBITS.length === 3 ? [36, 44, 52][orbitIdx] + (w.word.length > 9 ? 4 : 0) : 44;
+      const depth0 = (Math.sin(angle0) + 1) / 2;
+      const baseFont = [8.5, 10, 11.5][orbitIdx];
+      const fontSize = Math.max(7.5, baseFont - (w.word.length > 12 ? 2.5 : w.word.length > 9 ? 1.5 : 0));
+      const skin = PLANET_SKINS[h % PLANET_SKINS.length];
+      return {
+        ...w,
+        skin,
+        orbitR: ORBITS[orbitIdx],
+        angle0,
+        speed: SPEEDS[orbitIdx] + ((h % 7) - 3) * 0.004,
+        size,
+        fontSize,
+        textColor: skin.kind === 'ice' ? '#2F3E4A' : '#FFF9F1',
+        t0: `translate3d(${(CX + ORBITS[orbitIdx] * Math.cos(angle0) - size / 2).toFixed(1)}px, ${(CY + ORBITS[orbitIdx] * Math.sin(angle0) * TILT - size / 2).toFixed(1)}px, 0) scale(${(0.74 + depth0 * 0.42).toFixed(3)})`,
+        z0: 10 + Math.round(depth0 * 40),
+        o0: 0.66 + depth0 * 0.34,
+      };
+    });
+  }, [words, ORBITS, SPEEDS, CX, CY, TILT]);
+
+  const belt = useMemo<BeltSpec[]>(() => {
+    return Array.from({ length: BELT_COUNT }, (_, i) => {
+      const h = stableHash(`belt-${i}-${words.length}`);
+      const angle0 = (i / BELT_COUNT) * Math.PI * 2 + ((h % 100) / 100 - 0.5) * 0.22;
+      const orbitR = BELT_R + ((h % 9) - 4) * 2.2;
+      const size = 2 + (h % 3);
+      const depth0 = (Math.sin(angle0) + 1) / 2;
+      return {
+        orbitR,
+        angle0,
+        speed: 0.19 + ((h % 5) - 2) * 0.003,
+        size,
+        aspect: 0.6 + (h % 50) / 100,
+        t0: `translate3d(${(CX + orbitR * Math.cos(angle0) - size / 2).toFixed(1)}px, ${(CY + orbitR * Math.sin(angle0) * TILT - size / 2).toFixed(1)}px, 0) scale(${(0.65 + depth0 * 0.55).toFixed(3)})`,
+        z0: Math.round(depth0 * 34),
+        o0: 0.22 + depth0 * 0.4,
+      };
+    });
+  }, [words.length, BELT_COUNT, BELT_R, CX, CY, TILT]);
+
+  useEffect(() => {
+    let raf = 0;
+    const start = performance.now();
+    const tick = (now: number) => {
+      const t = (now - start) / 1000;
+      planets.forEach((p, i) => {
+        const el = planetRefs.current[i];
+        if (!el) return;
+        const a = p.angle0 + t * p.speed;
+        const sin = Math.sin(a);
+        const x = CX + p.orbitR * Math.cos(a);
+        const y = CY + p.orbitR * sin * TILT;
+        const depth = (sin + 1) / 2;
+        const hovered = hoveredRef.current === p.word;
+        const scale = (0.74 + depth * 0.42) * (hovered ? 1.3 : 1);
+        el.style.transform = `translate3d(${(x - p.size / 2).toFixed(1)}px, ${(y - p.size / 2).toFixed(1)}px, 0) scale(${scale.toFixed(3)})`;
+        el.style.zIndex = hovered ? '99' : String(10 + Math.round(depth * 40));
+        el.style.opacity = (0.66 + depth * 0.34).toFixed(2);
+        el.style.filter = depth < 0.34 ? 'blur(0.8px) brightness(0.85) saturate(0.85)' : 'none';
+      });
+      belt.forEach((b, i) => {
+        const el = beltRefs.current[i];
+        if (!el) return;
+        const a = b.angle0 + t * b.speed;
+        const sin = Math.sin(a);
+        const x = CX + b.orbitR * Math.cos(a);
+        const y = CY + b.orbitR * sin * TILT;
+        const depth = (sin + 1) / 2;
+        el.style.transform = `translate3d(${(x - b.size / 2).toFixed(1)}px, ${(y - b.size / 2).toFixed(1)}px, 0) scale(${(0.65 + depth * 0.55).toFixed(3)})`;
+        el.style.zIndex = String(Math.round(depth * 34));
+        el.style.opacity = (0.22 + depth * 0.4).toFixed(2);
+      });
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [planets, belt, CX, CY, TILT]);
 
   return (
     <div className="relative mx-auto" style={{ width: SIZE, maxWidth: '100%', height: SIZE }}>
-      {/* 旋转盘：静态坐标的球与连线随盘整体缓慢转动 */}
-      <div className="absolute inset-0 animate-galaxy-spin">
-        <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="absolute inset-0 w-full h-full pointer-events-none">
-          {placed.map((p, i) => {
-            const next = placed[(i + 1) % placed.length];
-            if (placed.length < 2) return null;
-            return (
-              <line
-                key={`line-${p.id}`}
-                x1={p.x + p.ballSize / 2}
-                y1={p.y + p.ballSize / 2}
-                x2={next.x + next.ballSize / 2}
-                y2={next.y + next.ballSize / 2}
-                stroke="#C96F3D"
-                strokeOpacity="0.28"
-                strokeWidth="1.5"
-                strokeDasharray="4 4"
-              />
-            );
-          })}
-        </svg>
-        {placed.map((p, i) => (
-          <div
-            key={p.id}
-            className="absolute animate-galaxy-spin-reverse"
-            style={{ left: p.x, top: p.y, width: p.ballSize, height: p.ballSize }}
+      {/* 椭圆轨道虚线（透明背景上的淡轨道线） */}
+      {ORBITS.map((r) => (
+        <div
+          key={`orbit-${r}`}
+          className="absolute rounded-[50%] border border-dashed pointer-events-none"
+          style={{ left: CX - r, top: CY - r * TILT, width: r * 2, height: r * 2 * TILT, borderColor: 'rgba(201, 111, 61, 0.13)' }}
+        />
+      ))}
+      <div
+        className="absolute rounded-[50%] border border-dashed pointer-events-none"
+        style={{ left: CX - BELT_R, top: CY - BELT_R * TILT, width: BELT_R * 2, height: BELT_R * 2 * TILT, borderColor: 'rgba(139, 118, 98, 0.1)' }}
+      />
+      {/* 中心恒星 */}
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none z-[1]">
+        <div className="sun-core" />
+      </div>
+      {/* 小行星带 */}
+      {belt.map((b, i) => (
+        <span
+          key={`belt-${i}`}
+          ref={(el) => { beltRefs.current[i] = el; }}
+          className="absolute left-0 top-0 rounded-[40%] will-change-transform"
+          style={{ width: b.size, height: b.size * b.aspect, background: '#8B7662', opacity: b.o0, transform: b.t0, zIndex: b.z0 }}
+        />
+      ))}
+      {/* 行星（词） */}
+      {planets.map((p, i) => (
+        <div
+          key={p.id}
+          ref={(el) => { planetRefs.current[i] = el; }}
+          className="absolute left-0 top-0 will-change-transform"
+          style={{ width: p.size, height: p.size, transform: p.t0, zIndex: p.z0, opacity: p.o0 }}
+        >
+          <button
+            type="button"
+            onClick={() => onPick(p)}
+            title={`${p.word}（点击看词源与台词）`}
+            onMouseEnter={() => { hoveredRef.current = p.word; }}
+            onMouseLeave={() => { hoveredRef.current = null; }}
+            className="block w-full h-full rounded-full border-none cursor-pointer relative shadow-card transition-shadow duration-300 hover:shadow-float"
+            style={{
+              background: planetBackground(p.skin),
+              fontSize: p.fontSize,
+              color: p.textColor,
+              textShadow: p.skin.kind === 'ice' ? 'none' : '0 1px 2px rgba(47, 32, 20, 0.4)',
+              lineHeight: 1.12,
+              wordBreak: 'break-all',
+              padding: 3,
+            }}
           >
-            <button
-              type="button"
-              onClick={() => onPick(p)}
-              title={`${p.word}（点击看词源与台词）`}
-              className="w-full h-full rounded-full border-none cursor-pointer flex items-center justify-center text-white font-display font-bold shadow-card hover:scale-125 hover:shadow-float hover:z-10 transition-transform duration-300"
-              style={{
-                backgroundColor: RAINBOW_SOLID[i % RAINBOW_SOLID.length],
-                fontSize: p.word.length > 9 ? 10 : p.word.length > 6 ? 12 : 14,
-                padding: 4,
-                wordBreak: 'break-all',
-                lineHeight: 1.1,
-              }}
-            >
-              {p.word}
-            </button>
-          </div>
-        ))}
-      </div>
-      {/* 中心装饰（不随盘转） */}
-      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none">
-        <Sparkles className="w-6 h-6 text-[#E9C96A]" />
-      </div>
+            <span className="relative z-10 font-display font-bold">{p.word}</span>
+            {p.skin.kind === 'ringed' && <span className="planet-ring" style={{ borderColor: hexA(p.skin.dark, 0.55) }} />}
+          </button>
+        </div>
+      ))}
     </div>
   );
 }
@@ -558,7 +710,7 @@ export default function RecordsPage() {
           <div className="py-10 text-center">
             <Star className="w-8 h-8 mx-auto text-on-surface-variant/30" />
             <p className="mt-3 text-sm text-on-surface-variant">还没有星标单词</p>
-            <p className="mt-1 text-xs text-on-surface-variant/70">去背诵页点亮单词旁的小星星，它们会在这里连成星座</p>
+            <p className="mt-1 text-xs text-on-surface-variant/70">去背诵页点亮单词旁的小星星，它们会在这里化作行星环绕运行</p>
           </div>
         ) : (
           <div className="mt-4">
