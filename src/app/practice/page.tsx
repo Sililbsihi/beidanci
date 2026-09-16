@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Target, Info, PencilLine, Lightbulb, SkipForward, CircleCheck, PartyPopper, BookOpen, Repeat, FileUp, Sparkles, Star,
+  Target, Info, PencilLine, SkipForward, CircleCheck, PartyPopper, BookOpen, Repeat, FileUp, Sparkles, Star,
 } from 'lucide-react';
 
 interface WordRow {
@@ -319,12 +319,6 @@ export default function PracticePage() {
     }
   }, [current, typed, words, persistType]);
 
-  const handleHint = () => {
-    if (!current) return;
-    setTyped((prev) => (prev.length === 0 ? current.word[0] : prev));
-    inputRef.current?.focus();
-  };
-
   const handleSkip = () => {
     if (words.length === 0) return;
     const next = pickNextWord(words, currentId);
@@ -463,18 +457,6 @@ export default function PracticePage() {
                   )}
                 </div>
                 <div className="flex items-center gap-2.5">
-                  {starredReady && (
-                    <button
-                      type="button"
-                      onClick={() => void toggleStarred(current)}
-                      title={current.starred ? '取消星标' : '星标这个词（记录页组成星系）'}
-                      className="border-none bg-transparent p-1 rounded-full transition-transform active:scale-90 cursor-pointer"
-                    >
-                      <Star
-                        className={`w-5 h-5 transition-colors ${current.starred ? 'text-[#E9C96A] fill-[#E9C96A]' : 'text-on-surface-variant/40 hover:text-[#E9C96A]'}`}
-                      />
-                    </button>
-                  )}
                   <span className="text-xs font-medium text-on-surface-variant">
                     第 {Math.min(current.correct_round + 1, ROUNDS_PER_RECITE)} 遍 / 共 {ROUNDS_PER_RECITE} 遍
                   </span>
@@ -605,15 +587,21 @@ export default function PracticePage() {
                 ))}
               </div>
 
-              {/* 提示按钮行 */}
+              {/* 操作按钮行 */}
               <div className="mt-7 flex items-center justify-center gap-3 flex-wrap">
-                <button
-                  className="bg-surface-container text-on-surface border-none px-4 py-2 rounded-full text-sm font-medium hover:bg-surface-container-high active:scale-[0.98] transition-all inline-flex items-center gap-2"
-                  onClick={handleHint}
-                >
-                  <Lightbulb className="w-4 h-4 text-jelly-yellow" />
-                  提示首字母
-                </button>
+                {starredReady && (
+                  <button
+                    className={`border-none px-4 py-2 rounded-full text-sm font-medium active:scale-[0.98] transition-all inline-flex items-center gap-2 ${
+                      current.starred
+                        ? 'bg-[#E9C96A]/20 text-[#8A6D1F] ring-1 ring-[#E9C96A]/50'
+                        : 'bg-surface-container text-on-surface hover:bg-surface-container-high'
+                    }`}
+                    onClick={() => void toggleStarred(current)}
+                  >
+                    <Star className={`w-4 h-4 ${current.starred ? 'text-[#E9C96A] fill-[#E9C96A]' : 'text-[#E9C96A]'}`} />
+                    {current.starred ? '已星标 · 记录页可见' : '星标这个单词'}
+                  </button>
+                )}
                 <button
                   className="bg-surface-container text-on-surface border-none px-4 py-2 rounded-full text-sm font-medium hover:bg-surface-container-high active:scale-[0.98] transition-all inline-flex items-center gap-2"
                   onClick={handleSkip}
