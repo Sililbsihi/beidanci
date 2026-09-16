@@ -45,7 +45,7 @@ src/
 │       ├── practice/today/route.ts # GET 今日队列（未背完在前、组内新词置顶 id 降序）+ 进度 + 最近导入批次统计
 │       ├── practice/type/route.ts  # POST 拼写校验（错误清零重抄并写错误流水；正确+1，满 3 遍完成一轮背诵）
 │       ├── records/route.ts      # GET 统计 + 星标词列表 + 一周趋势 + 今日记录 + 历史分组 + 三个排行榜（含释义供气泡拼写提示）
-│       ├── word-detail/route.ts  # POST LLM 生成单词详情（词源/词根/台词出处/角色/台词中文翻译），记录页星系弹窗用
+│       ├── word-detail/route.ts  # POST LLM 生成单词详情（词源/词根/双语出处/角色/翻译/剧情背景）；原句按话剧→文学→新闻分级选取并经联网搜索逐字核验（探针片段命中才放行，未通过即置空——宁缺毋滥），缓存 key jelly-detail:v3:*，记录页星系弹窗用
 │       └── cleanup/route.ts      # POST 删除批次临时文件（兜底接口，识别即焚后通常无需调用）
 ├── components/site-header.tsx    # 顶部导航（当前页高亮）
 ├── lib/word-app.ts               # SDK 客户端单例 + 识别/释义/JSON 解析等共享函数
