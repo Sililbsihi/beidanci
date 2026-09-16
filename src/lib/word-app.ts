@@ -311,50 +311,60 @@ export function extractWordsLocally(text: string): RecognizedWord[] {
   return words;
 }
 
-/** 批量 LLM 直译：一次调用为多个单词生成 1-2 个简洁中文释义（; 分隔），替代逐词搜索+提炼的慢链路 */
+/** 批量 LLM 直译：小批次 + 并发池（单批输出 ~10 条释义保证秒级返回，N/12 批最多 16 路并发） */
 export async function translateWordsBatch(words: string[]): Promise<Map<string, string>> {
   const result = new Map<string, string>();
-  if (words.length === 0) return result;
-
-  // 每批 40 个词，单次调用输出量可控（约 600-800 token）
-  const CHUNK = 40;
-  const batches: string[][] = [];
-  for (let i = 0; i < words.length; i += CHUNK) {
-    batches.push(words.slice(i, i + CHUNK));
-  }
-
-  const settled = await Promise.allSettled(
-    batches.map(async (batch) => {
-      const messages: Message[] = [
-        { role: 'system', content: '你是英汉词典数据库，只输出 JSON 数组，不要输出任何其他文字。' },
-        {
-          role: 'user',
-          content:
-            `为下列 ${batch.length} 个英文单词或短语各给出 1-2 个最常见的简体中文释义。要求：\n` +
-            '1) 每个释义 2-6 个字，简洁准确；多词短语给出整体含义（如 fossil fuels → 化石燃料）；\n' +
-            '2) 多个释义用「;」分隔，不带词性标注、不带序号、不带句号；\n' +
-            '3) 只输出 JSON 数组，格式：[{"word":"原词","translation":"释义"}]，word 必须与输入完全一致，不得遗漏。\n' +
-            `词表：${JSON.stringify(batch)}`,
-        },
-      ];
-      const response = await getLLM().invoke(messages, {
-        model: 'doubao-seed-2-0-mini-260215',
-        temperature: 0.1,
-      });
-      return parseTranslationPairs(String(response.content ?? ''));
-    }),
+  // 去重 + 归一化：重复词只翻一次
+  const unique = Array.from(
+    new Set(words.map((w) => w.trim().toLowerCase()).filter(Boolean)),
   );
+  if (unique.length === 0) return result;
 
-  for (const item of settled) {
-    if (item.status === 'rejected') {
-      console.warn('[translate] 批量释义批次失败:', item.reason);
-      continue;
-    }
-    for (const [word, translation] of item.value) {
-      if (translation) result.set(word, translation);
-    }
+  const CHUNK = 12;
+  const batches: string[][] = [];
+  for (let i = 0; i < unique.length; i += CHUNK) {
+    batches.push(unique.slice(i, i + CHUNK));
   }
+
+  // 并发池：固定 worker 数消费批次队列，避免大批量时无上限并发触发限流
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < batches.length) {
+      const batch = batches[cursor];
+      cursor += 1;
+      try {
+        const pairs = await translateChunk(batch);
+        for (const [word, translation] of pairs) {
+          if (translation) result.set(word, translation);
+        }
+      } catch (error) {
+        console.warn('[translate] 批量释义批次失败:', error);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(batches.length, 16) }, () => worker()));
   return result;
+}
+
+/** 单批直译：一次 LLM 调用输出该批全部释义 */
+async function translateChunk(batch: string[]): Promise<Map<string, string>> {
+  const messages: Message[] = [
+    { role: 'system', content: '你是英汉词典数据库，只输出 JSON 数组，不要输出任何其他文字。' },
+    {
+      role: 'user',
+      content:
+        `为下列 ${batch.length} 个英文单词或短语各给出 1-2 个最常见的简体中文释义。要求：\n` +
+        '1) 每个释义 2-6 个字，简洁准确；多词短语给出整体含义（如 fossil fuels → 化石燃料）；\n' +
+        '2) 多个释义用「;」分隔，不带词性标注、不带序号、不带句号；\n' +
+        '3) 只输出 JSON 数组，格式：[{"word":"原词","translation":"释义"}]，word 必须与输入完全一致，不得遗漏。\n' +
+        `词表：${JSON.stringify(batch)}`,
+    },
+  ];
+  const response = await getLLM().invoke(messages, {
+    model: 'doubao-seed-2-0-mini-260215',
+    temperature: 0.1,
+  });
+  return parseTranslationPairs(String(response.content ?? ''));
 }
 
 /** 解析批量释义 JSON 输出（兼容围栏代码块与截断容错） */

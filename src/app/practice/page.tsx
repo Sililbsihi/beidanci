@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Target, Info, PencilLine, Lightbulb, SkipForward, CircleCheck, PartyPopper, BookOpen, Repeat, FileUp,
+  Target, Info, PencilLine, Lightbulb, SkipForward, CircleCheck, PartyPopper, BookOpen, Repeat, FileUp, Sparkles,
 } from 'lucide-react';
 
 interface WordRow {
@@ -99,6 +99,86 @@ export default function PracticePage() {
   useEffect(() => {
     void loadQueue();
   }, [loadQueue]);
+
+  // 最新 words 引用（补译循环读取，避免旧闭包）
+  const wordsRef = useRef<WordRow[]>([]);
+  wordsRef.current = words;
+
+  /** 把缺释义的未背完词（含历史导入）排队补译：每轮 36 词由服务端小批并发直译，结果直接回写库并同步本地 */
+  const backfillBusyRef = useRef(false);
+  const backfillTranslations = useCallback(async () => {
+    if (backfillBusyRef.current) return;
+    backfillBusyRef.current = true;
+    try {
+      for (;;) {
+        const missing = wordsRef.current
+          .filter((w) => !w.translation && !w._done)
+          .map((w) => w.word);
+        if (missing.length === 0) break;
+        const res = await fetch('/api/translate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ words: missing.slice(0, 36) }),
+        });
+        if (!res.ok) break;
+        const data = (await res.json()) as { translations?: Array<{ word: string; translation: string }> };
+        const updates = (data.translations ?? []).filter((t) => t.translation);
+        if (updates.length === 0) break;
+        const defMap = new Map(updates.map((t) => [t.word, t.translation] as const));
+        setWords((prev) =>
+          prev.map((w) => (defMap.has(w.word) ? { ...w, translation: defMap.get(w.word)! } : w)),
+        );
+      }
+    } catch {
+      // 自动补译失败静默：用户可对当前词手动一键翻译
+    } finally {
+      backfillBusyRef.current = false;
+    }
+  }, []);
+
+  // 队列就绪后自动补译所有缺释义且未背完的词
+  useEffect(() => {
+    if (loading) return;
+    if (words.some((w) => !w.translation && !w._done)) {
+      void backfillTranslations();
+    }
+  }, [loading, words, backfillTranslations]);
+
+  /** 手动一键翻译当前词：单词单次直译调用，约 1 秒返回（服务端同步回写库） */
+  const [translating, setTranslating] = useState(false);
+  const [translateFailed, setTranslateFailed] = useState(false);
+  const handleTranslateCurrent = useCallback(
+    async (word: string) => {
+      if (translating) return;
+      setTranslating(true);
+      setTranslateFailed(false);
+      try {
+        const res = await fetch('/api/translate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ words: [word] }),
+        });
+        if (!res.ok) throw new Error('translate failed');
+        const data = (await res.json()) as { translations?: Array<{ word: string; translation: string }> };
+        const hit = data.translations?.find((t) => t.word === word && t.translation);
+        if (hit) {
+          setWords((prev) =>
+            prev.map((w) => (w.word === word ? { ...w, translation: hit.translation } : w)),
+          );
+        } else {
+          setTranslateFailed(true);
+        }
+      } catch {
+        setTranslateFailed(true);
+      } finally {
+        setTranslating(false);
+        if (translateFailed) {
+          setTimeout(() => setTranslateFailed(false), 3000);
+        }
+      }
+    },
+    [translating],
+  );
 
   /** 切换单词后聚焦键入区，并播放轻微果冻弹入动画（拼错的震动与此互斥） */
   useEffect(() => {
@@ -372,11 +452,23 @@ export default function PracticePage() {
                   {current.word}
                 </p>
                 <div className={`mt-4 mx-auto h-[3px] w-44 rounded-full ${RAINBOW_BAR} opacity-70`} />
-                {/* 中文释义（为辅，位于单词底部，较小） */}
-                <p className="mt-4 text-sm md:text-base text-on-surface-variant">
-                  {current.pos ? `${current.pos} ` : ''}
-                  {current.translation ?? '暂无释义'}
-                </p>
+                {/* 中文释义（为辅，位于单词底部，较小）；缺释义时可一键翻译 */}
+                {current.translation ? (
+                  <p className="mt-4 text-sm md:text-base text-on-surface-variant">
+                    {current.pos ? `${current.pos} ` : ''}
+                    {current.translation}
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => handleTranslateCurrent(current.word)}
+                    disabled={translating}
+                    className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-jelly-blue/15 px-4 py-1.5 text-xs font-medium text-jelly-blue transition-colors hover:bg-jelly-blue/25 disabled:opacity-60"
+                  >
+                    <Sparkles className={`w-3.5 h-3.5 ${translating ? 'animate-spin' : ''}`} />
+                    {translating ? '翻译中…' : translateFailed ? '未匹配到释义' : '一键翻译'}
+                  </button>
+                )}
                 <p className="mt-1.5 text-xs text-on-surface-variant/70">照着上方单词，逐字母键入抄写本遍</p>
               </div>
 

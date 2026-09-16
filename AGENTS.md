@@ -32,14 +32,14 @@
 src/
 ├── app/
 │   ├── page.tsx                  # 上传识别页（/；支持点击/拖拽/Ctrl+V 粘贴截图或英文文本，粘贴文本自动包装为 txt 走识别链路）
-│   ├── practice/page.tsx         # 背诵练习页（/practice，照抄键入核心交互）
+│   ├── practice/page.tsx         # 背诵练习页（/practice，照抄键入核心交互；加载后自动补译未背完且缺释义的词，当前词支持一键翻译约 1 秒返回）
 │   ├── records/page.tsx          # 背诵记录页（/records）
 │   ├── layout.tsx                # 全局布局 + 顶部导航
 │   ├── globals.css               # @theme 设计变量（原型迁移源）+ 果冻动画 keyframes
 │   └── api/
 │       ├── upload/route.ts       # POST 上传文件 → S3 临时存储 + upload_files 表
 │       ├── recognize/route.ts    # POST 识别单词（图片→LLM 多模态 OCR；文档→FetchClient 解析→LLM 选词）
-│       ├── translate/route.ts    # POST 批量 LLM 直译补齐缺失释义（1-2 个，; 分隔；仅兜底识别未覆盖的词）
+│       ├── translate/route.ts    # POST 批量 LLM 直译补齐缺失释义（小批 12 词 + 16 路并发池，100 词约 3 秒；默认异步回写 words 表只补空释义）
 │       ├── words/route.ts        # GET 单词列表 / POST 批量加入背诵（新词插入；重复导入重置本轮进度重新背诵）
 │       ├── words/[id]/route.ts   # PATCH 编辑释义 / DELETE 删除单词
 │       ├── practice/today/route.ts # GET 今日队列（未背完在前、组内新词置顶 id 降序）+ 进度 + 最近导入批次统计

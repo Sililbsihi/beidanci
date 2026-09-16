@@ -68,7 +68,8 @@ export default function HomePage() {
     if (missing.length === 0) return;
 
     let failedBatch = false;
-    const BATCH_SIZE = 8;
+    // 大批量交给服务端内部小批并发（16 路池），前端每请求 36 词减少浏览器同域排队
+    const BATCH_SIZE = 36;
     const batches: string[][] = [];
     for (let i = 0; i < missing.length; i += BATCH_SIZE) {
       batches.push(missing.slice(i, i + BATCH_SIZE));
