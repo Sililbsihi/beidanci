@@ -84,8 +84,8 @@ function WordDetailModal({ starred, onClose }: { starred: StarredWord; onClose: 
   const [detail, setDetail] = useState<WordDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
-  // v2：台词改为英文原文+双语剧目/角色+剧情背景，旧版缓存结构不同直接失效
-  const cacheKey = `jelly-detail:v2:${starred.word}`;
+  // v3：原句改为"真实原句+联网核验，宁缺毋滥"，旧缓存可能含未核验引用，直接失效
+  const cacheKey = `jelly-detail:v3:${starred.word}`;
 
   useEffect(() => {
     let alive = true;
@@ -187,11 +187,11 @@ function WordDetailModal({ starred, onClose }: { starred: StarredWord; onClose: 
                 </div>
               </section>
             )}
-            {detail.sentence && (
+            {detail.sentence ? (
               <section>
                 <h4 className="text-xs font-semibold text-primary inline-flex items-center gap-1.5">
                   <Theater className="w-3.5 h-3.5" />
-                  剧目台词
+                  经典原句
                 </h4>
                 <div className="mt-2 rounded-xl bg-surface-container/70 p-4">
                   <p className="font-display text-sm md:text-base text-on-surface leading-relaxed">&ldquo;{detail.sentence}&rdquo;</p>
@@ -208,6 +208,16 @@ function WordDetailModal({ starred, onClose }: { starred: StarredWord; onClose: 
                     {detail.character && <span className="text-primary font-medium">· {detail.character}</span>}
                   </p>
                 </div>
+              </section>
+            ) : (
+              <section>
+                <h4 className="text-xs font-semibold text-primary inline-flex items-center gap-1.5">
+                  <Theater className="w-3.5 h-3.5" />
+                  经典原句
+                </h4>
+                <p className="mt-2 rounded-xl bg-surface-container/50 p-4 text-xs leading-relaxed text-on-surface-variant">
+                  这个词暂未找到 100% 可靠的真实用例——宁可空着，也不编造出处。
+                </p>
               </section>
             )}
           </div>
