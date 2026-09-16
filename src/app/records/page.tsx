@@ -84,8 +84,8 @@ function WordDetailModal({ starred, onClose }: { starred: StarredWord; onClose: 
   const [detail, setDetail] = useState<WordDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
-  // v3：原句改为"真实原句+联网核验，宁缺毋滥"，旧缓存可能含未核验引用，直接失效
-  const cacheKey = `jelly-detail:v3:${starred.word}`;
+  // v4：原句改为三级兜底（核验引用→真实网页摘句→通用例句），保证有句可用；旧缓存可能为空句直接失效
+  const cacheKey = `jelly-detail:v4:${starred.word}`;
 
   useEffect(() => {
     let alive = true;
@@ -216,7 +216,7 @@ function WordDetailModal({ starred, onClose }: { starred: StarredWord; onClose: 
                   经典原句
                 </h4>
                 <p className="mt-2 rounded-xl bg-surface-container/50 p-4 text-xs leading-relaxed text-on-surface-variant">
-                  这个词暂未找到 100% 可靠的真实用例——宁可空着，也不编造出处。
+                  这个词的例句暂时没能生成，关闭弹窗稍后再试一次。
                 </p>
               </section>
             )}

@@ -64,11 +64,10 @@ function extractProbeFragments(sentence: string): string[] {
   return [...fragments];
 }
 
-/** 联网逐字验证原句真实性：任一探针片段在搜索结果中完整出现才算通过；搜索通道异常按未通过处理（宁缺毋滥） */
-async function verifySentenceOnline(sentence: string, forwardHeaders: Record<string, string>): Promise<boolean> {
+/** 联网逐字验证原句真实性：任一探针片段在搜索结果中完整出现才算通过；搜索通道异常按未通过处理 */
+async function verifySentenceOnline(sentence: string, client: SearchClient): Promise<boolean> {
   const fragments = extractProbeFragments(sentence);
   if (fragments.length === 0) return false;
-  const client = new SearchClient(new Config(), forwardHeaders);
   for (const fragment of fragments) {
     try {
       const response = await client.webSearch(fragment, 8, false);
@@ -79,13 +78,79 @@ async function verifySentenceOnline(sentence: string, forwardHeaders: Record<str
       if (haystack && haystack.includes(fragment)) return true;
     } catch (error) {
       console.error('[word-detail] 台词搜索验证失败', error);
-      // 继续尝试下一个片段；全部失败则按未验证处理
     }
   }
   return false;
 }
 
-/** POST /api/word-detail 生成单词的词源、词根与一句经过联网核验的真实英文原句 */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** 从网页文本中摘取包含目标单词的完整句子（换行+句号双重切分、词边界匹配、长度适中、非中文残留） */
+function extractSentenceWithWord(text: string, word: string): string | null {
+  if (!text) return null;
+  const wordRe = new RegExp(`\\b${escapeRegExp(word)}\\b`, 'i');
+  const cjkRe = /[\u4e00-\u9fff]/;
+  for (const line of text.split(/\n+/)) {
+    for (const rawPart of line.split(/(?<=[.!?])\s+/)) {
+      const part = rawPart.trim().replace(/^["'"“”«»\s]+/, '').replace(/["'"“”«»\s]+$/, '').trim();
+      const words = part.split(/\s+/).filter(Boolean);
+      if (!part || words.length < 6 || words.length > 40) continue;
+      if (cjkRe.test(part)) continue;
+      if (!/^[A-Za-z"']/.test(part)) continue;
+      if (!wordRe.test(part)) continue;
+      return part;
+    }
+  }
+  return null;
+}
+
+interface Harvested {
+  sentence: string;
+  sourceName: string;
+}
+
+/** 第二层兜底：直接从真实网页（新闻/杂志/文学站点）摘取包含该单词的原句——句子天然真实 */
+async function harvestRealSentence(word: string, client: SearchClient): Promise<Harvested | null> {
+  const queries = [`"${word}" example sentence`, `"${word}" news quote`];
+  for (const query of queries) {
+    try {
+      const response = await client.advancedSearch(query, { count: 10, needContent: true, needSummary: false });
+      for (const item of response.web_items ?? []) {
+        const text = `${item.snippet ?? ''} ${item.content ?? ''}`;
+        const sentence = extractSentenceWithWord(text, word);
+        if (sentence) {
+          const sourceName = (item.site_name ?? '').trim() || (item.url ?? '').replace(/^https?:\/\//, '').split('/')[0];
+          if (sourceName) return { sentence, sourceName };
+        }
+      }
+    } catch (error) {
+      console.error('[word-detail] 真实例句搜索失败', query, error);
+    }
+  }
+  return null;
+}
+
+/** 第三层兜底：搜索通道不可用时生成通用例句，并诚实标注非真实出处 */
+async function buildGenericSentence(word: string): Promise<Partial<WordDetail>> {
+  const response = await getLLM().invoke(
+    [
+      { role: 'system' as const, content: '你是英语教学例句编写专家。只输出 JSON，不要输出任何其他文字。' },
+      {
+        role: 'user' as const,
+        content:
+          `为单词 "${word}" 写一句清晰自然、便于记忆的英文例句（15-25 词，日常或新闻风格，必须自然用到该单词）：\n` +
+          '只输出 JSON 对象：{"sentence":"","sentenceTranslation":""}\n' +
+          'sentence 为英文例句，sentenceTranslation 为它的中文翻译。',
+      },
+    ],
+    { model: 'doubao-seed-2-0-mini-260215', temperature: 0.5 },
+  );
+  return parseDetailJson(String(response.content ?? ''));
+}
+
+/** POST /api/word-detail 生成单词的词源、词根与一句真实例句（三级兜底保证有句可用） */
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as { word?: string };
@@ -116,8 +181,9 @@ export async function POST(request: NextRequest) {
     ];
 
     const forwardHeaders = HeaderUtils.extractForwardHeaders(request.headers);
+    const searchClient = new SearchClient(new Config(), forwardHeaders);
 
-    // LLM 输出偶发不稳定：词源必须拿到；原句缺失时再给一次机会（换选材），最多两轮
+    // 第一层：凭知识生成（词源必须拿到；原句缺失时再给一次机会，最多两轮）
     let detail = EMPTY_DETAIL;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const response = await getLLM().invoke(messages, {
@@ -132,12 +198,63 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '词源生成失败，请稍后再试' }, { status: 502 });
     }
 
-    // 联网核验：探针片段在搜索结果中逐字命中才放行；否则丢弃台词（宁缺毋滥，绝不输出未经核验的引用）
+    // 核验第一层的原句：探针片段在搜索结果中逐字命中才放行
     if (detail.sentence) {
-      const verified = await verifySentenceOnline(detail.sentence, forwardHeaders);
+      const verified = await verifySentenceOnline(detail.sentence, searchClient);
       if (!verified) {
-        console.log(`[word-detail] "${word}" 的原句未通过联网核验，已丢弃`);
+        console.log(`[word-detail] "${word}" 第一层原句未通过联网核验，降级到真实网页摘句`);
         detail = { ...detail, sentence: '', play: '', character: '', sentenceTranslation: '', context: '' };
+      }
+    }
+
+    // 第二层：从真实网页摘取包含该单词的原句（句子天然真实），AI 仅负责翻译与背景说明
+    if (!detail.sentence) {
+      const harvested = await harvestRealSentence(word, searchClient);
+      if (harvested) {
+        const enrichResponse = await getLLM().invoke(
+          [
+            { role: 'system' as const, content: '你是双语编辑，负责为真实英文例句补充准确的出处信息与中文说明。只输出 JSON，不要输出任何其他文字。' },
+            {
+              role: 'user' as const,
+              content:
+                `下面是从网页 "${harvested.sourceName}" 摘录的真实英文句子（包含单词 "${word}"）：\n` +
+                `"${harvested.sentence}"\n\n` +
+                '请基于这个句子本身生成：\n' +
+                '1) play：来源媒体或作品的双语名称，格式 "英文名 中文名"。若能识别知名媒体/作品（如 BBC、《纽约时报》、某小说）给出规范双语名；无法识别时给出域名与中文音译/意译\n' +
+                '2) character：该句的作者或角色（双语，格式同上）；无从确定时输出 ""\n' +
+                '3) sentenceTranslation：该句的中文翻译\n' +
+                '4) context：用中文一句话说明这句话的内容与出现的语境（基于句子本身，不要编造额外情节）\n' +
+                '只输出 JSON 对象：{"play":"","character":"","sentenceTranslation":"","context":""}',
+            },
+          ],
+          { model: 'doubao-seed-2-0-mini-260215', temperature: 0.3 },
+        );
+        const enriched = parseDetailJson(String(enrichResponse.content ?? ''));
+        detail = {
+          ...detail,
+          sentence: harvested.sentence,
+          play: enriched.play || harvested.sourceName,
+          character: enriched.character,
+          sentenceTranslation: enriched.sentenceTranslation,
+          context: enriched.context || `摘自 ${harvested.sourceName} 的真实用例`,
+        };
+        console.log(`[word-detail] "${word}" 使用第二层真实网页摘句（来源 ${harvested.sourceName}）`);
+      }
+    }
+
+    // 第三层：搜索通道不可用时生成通用例句，诚实标注非真实出处（保证学习不中断）
+    if (!detail.sentence) {
+      const generic = await buildGenericSentence(word);
+      if (generic.sentence) {
+        detail = {
+          ...detail,
+          sentence: generic.sentence,
+          play: '通用例句 General Example',
+          character: '',
+          sentenceTranslation: generic.sentenceTranslation ?? '',
+          context: '未能核验到真实出处的参考例句，仅辅助记忆',
+        };
+        console.log(`[word-detail] "${word}" 使用第三层通用例句兜底`);
       }
     }
 
