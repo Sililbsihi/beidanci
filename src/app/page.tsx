@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   CloudUpload, Image as ImageIcon, FileText, File as FileIcon, Presentation, Table2,
@@ -250,6 +250,45 @@ async function recognizeWithRetry(
     [fillTranslations, patchTask],
   );
 
+  /** 剪贴板粘贴上传：截图/复制的文件直接走识别；复制的英文文字自动包装成 txt 走识别 */
+  const pasteBusyRef = useRef(false);
+  const handleFilesRef = useRef(handleFiles);
+  handleFilesRef.current = handleFiles;
+
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const data = e.clipboardData;
+      if (!data) return;
+      const files: File[] = [];
+      for (const item of Array.from(data.items)) {
+        if (item.kind === 'file') {
+          const f = item.getAsFile();
+          if (f) files.push(f);
+        }
+      }
+      // 没有文件时，把复制的纯文本（一段英文/一个单词）包装成 txt 直接识别
+      if (files.length === 0) {
+        const text = data.getData('text/plain').trim();
+        if (text.length >= 2) {
+          const stamp = new Date().toTimeString().slice(0, 5).replace(':', '');
+          files.push(new File([text], `粘贴的文本_${stamp}.txt`, { type: 'text/plain' }));
+        }
+      }
+      if (files.length === 0 || pasteBusyRef.current) return;
+      e.preventDefault();
+      pasteBusyRef.current = true;
+      void (async () => {
+        try {
+          await handleFilesRef.current(files);
+        } finally {
+          pasteBusyRef.current = false;
+        }
+      })();
+    };
+    document.addEventListener('paste', onPaste);
+    return () => document.removeEventListener('paste', onPaste);
+  }, []);
+
   /** 校对完成，全部加入背诵 */
   const handleAddAll = useCallback(async () => {
     const valid = words.filter((w) => w.word);
@@ -333,7 +372,7 @@ async function recognizeWithRetry(
       {/* 临时存储说明 */}
       <div className="flex items-center gap-2.5 bg-success/10 text-success rounded-xl px-4 py-3 text-sm">
         <ShieldCheck className="w-4.5 h-4.5 shrink-0" />
-        <span>上传文件仅临时保存用于本次单词识别，背诵完成后自动删除</span>
+        <span>文件即用即焚：仅临时保存用于本次单词识别，识别完成立即删除，不会留存任何文件</span>
       </div>
 
       {/* 上传区域 */}
@@ -357,8 +396,8 @@ async function recognizeWithRetry(
         <div className="w-14 h-14 mx-auto rounded-2xl bg-primary/12 flex items-center justify-center">
           <CloudUpload className="w-7 h-7 text-primary" />
         </div>
-        <p className="mt-4 font-display font-bold text-lg text-on-surface">点击或拖拽文件到此处</p>
-        <p className="mt-1 text-xs text-on-surface-variant">单次最多 5 个文件，单个不超过 20MB</p>
+        <p className="mt-4 font-display font-bold text-lg text-on-surface">点击、拖拽或直接 Ctrl+V 粘贴</p>
+        <p className="mt-1 text-xs text-on-surface-variant">单次最多 5 个文件，单个不超过 20MB；粘贴截图或复制的英文段落也可以直接识别</p>
         <div className="mt-6 flex flex-wrap justify-center gap-2.5">
           {FORMAT_TAGS.map((tag) => (
             <span

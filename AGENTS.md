@@ -31,7 +31,7 @@
 ```
 src/
 ├── app/
-│   ├── page.tsx                  # 上传识别页（/）
+│   ├── page.tsx                  # 上传识别页（/；支持点击/拖拽/Ctrl+V 粘贴截图或英文文本，粘贴文本自动包装为 txt 走识别链路）
 │   ├── practice/page.tsx         # 背诵练习页（/practice，照抄键入核心交互）
 │   ├── records/page.tsx          # 背诵记录页（/records）
 │   ├── layout.tsx                # 全局布局 + 顶部导航
