@@ -11,9 +11,10 @@ interface WordDetail {
   play: string;
   character: string;
   sentenceTranslation: string;
+  context: string;
 }
 
-const EMPTY_DETAIL: WordDetail = { etymology: '', roots: [], sentence: '', play: '', character: '', sentenceTranslation: '' };
+const EMPTY_DETAIL: WordDetail = { etymology: '', roots: [], sentence: '', play: '', character: '', sentenceTranslation: '', context: '' };
 
 /** 从 LLM 输出中容错解析词详情 JSON（兼容围栏代码块） */
 function parseDetailJson(content: string): WordDetail {
@@ -32,6 +33,7 @@ function parseDetailJson(content: string): WordDetail {
       play: typeof parsed.play === 'string' ? parsed.play.trim() : '',
       character: typeof parsed.character === 'string' ? parsed.character.trim() : '',
       sentenceTranslation: typeof parsed.sentenceTranslation === 'string' ? parsed.sentenceTranslation.trim() : '',
+      context: typeof parsed.context === 'string' ? parsed.context.trim() : '',
     };
   } catch {
     return EMPTY_DETAIL;
@@ -55,11 +57,12 @@ export async function POST(request: NextRequest) {
           `请为英文单词 "${word}" 生成以下内容：\n` +
           '1) etymology：用中文写 1-2 句这个词的词源故事（来自哪种语言、原始含义、如何演变至今），简洁有趣\n' +
           '2) roots：词根/词缀拆解数组，每项格式如 "ser-（捆绑、连在一起）"，若无明显词根可给出记忆联想拆解\n' +
-          '3) sentence：一句包含该单词的英文台词，必须出自一部真实存在的话剧或音乐剧（莎士比亚剧作、百老汇或西区音乐剧等），语言要有台词的韵味\n' +
-          '4) play：该剧目的中文译名\n' +
-          '5) character：说出这句台词的角色名\n' +
-          '6) sentenceTranslation：台词的中文翻译\n' +
-          '只输出 JSON 对象：{"etymology":"","roots":[""],"sentence":"","play":"","character":"","sentenceTranslation":""}',
+          '3) sentence：一句包含该单词的话剧或音乐剧台词，必须是英文原文（English original line），逐字出自真实存在的剧作（莎士比亚剧作、百老汇或西区音乐剧等）。严禁输出中文，严禁自行改写或杜撰台词。若原句较长可截取包含该单词的完整一句\n' +
+          '4) play：剧目名，双语格式为 "英文名 中文名"，例如 "Les Misérables 悲惨世界"\n' +
+          '5) character：说出这句台词的角色名，双语格式为 "英文名 中文名"，例如 "Jean Valjean 冉阿让"\n' +
+          '6) sentenceTranslation：这句英文台词的中文翻译\n' +
+          '7) context：用中文一句话概括这句台词在整个剧目中的情节与背景（谁在什么场景下、为什么说这句话）\n' +
+          '只输出 JSON 对象：{"etymology":"","roots":[""],"sentence":"","play":"","character":"","sentenceTranslation":"","context":""}',
       },
     ];
 
@@ -68,7 +71,7 @@ export async function POST(request: NextRequest) {
     for (let attempt = 0; attempt < 2 && !detail.etymology && !detail.sentence; attempt += 1) {
       const response = await getLLM().invoke(messages, {
         model: 'doubao-seed-2-0-mini-260215',
-        temperature: 0.7,
+        temperature: 0.3,
       });
       detail = parseDetailJson(String(response.content ?? ''));
     }

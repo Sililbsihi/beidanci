@@ -49,6 +49,7 @@ interface WordDetail {
   play: string;
   character: string;
   sentenceTranslation: string;
+  context: string;
 }
 
 interface RecordsData {
@@ -83,7 +84,8 @@ function WordDetailModal({ starred, onClose }: { starred: StarredWord; onClose: 
   const [detail, setDetail] = useState<WordDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
-  const cacheKey = `jelly-detail:${starred.word}`;
+  // v2：台词改为英文原文+双语剧目/角色+剧情背景，旧版缓存结构不同直接失效
+  const cacheKey = `jelly-detail:v2:${starred.word}`;
 
   useEffect(() => {
     let alive = true;
@@ -194,6 +196,12 @@ function WordDetailModal({ starred, onClose }: { starred: StarredWord; onClose: 
                 <div className="mt-2 rounded-xl bg-surface-container/70 p-4">
                   <p className="font-display text-sm md:text-base text-on-surface leading-relaxed">&ldquo;{detail.sentence}&rdquo;</p>
                   {detail.sentenceTranslation && <p className="mt-2 text-xs text-on-surface-variant leading-relaxed">{detail.sentenceTranslation}</p>}
+                  {detail.context && (
+                    <p className="mt-2 text-xs text-on-surface-variant leading-relaxed">
+                      <span className="text-primary font-medium">剧情：</span>
+                      {detail.context}
+                    </p>
+                  )}
                   <p className="mt-3 text-xs text-on-surface-variant inline-flex items-center gap-1.5">
                     <Theater className="w-3.5 h-3.5" />
                     {detail.play}
