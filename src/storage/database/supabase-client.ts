@@ -12,6 +12,20 @@ interface SupabaseCredentials {
 function loadEnv(): void {
   if (envLoaded) return;
 
+  // 部署平台保留 COZE_ 前缀，用户在平台"生产环境变量"配置的自有库凭证改用 APP_ 前缀；
+  // APP_* 存在时强制覆盖同义 COZE_*，用于线上切换到用户自有 Supabase（优先于平台内置注入）
+  const appOverrides: Array<[string, string]> = [
+    ['APP_SUPABASE_URL', 'COZE_SUPABASE_URL'],
+    ['APP_SUPABASE_ANON_KEY', 'COZE_SUPABASE_ANON_KEY'],
+    ['APP_SUPABASE_SERVICE_ROLE_KEY', 'COZE_SUPABASE_SERVICE_ROLE_KEY'],
+  ];
+  for (const [appKey, cozeKey] of appOverrides) {
+    const value = process.env[appKey];
+    if (value) {
+      process.env[cozeKey] = value;
+    }
+  }
+
   // 两级加载，优先级：进程/平台注入 < .env（部署打包兜底） < .env.local（用户显式配置，最高优先）
   // 背景：部署打包会把平台环境变量追加进 .env（同名键排在后部，dotenv 解析时后者覆盖前者），
   // 若用户凭证只写在 .env，会被平台指向的 COZE_SUPABASE_* 覆盖，导致线上静默连回平台库。
