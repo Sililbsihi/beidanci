@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { detectFileType, getStorage } from '@/lib/word-app';
+import { requireAccount } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 // 图片/文档上传含网络传输与对象存储写入，放宽到 120s 防平台默认超时掐断大文件
@@ -11,6 +12,9 @@ const MAX_SIZE = 20 * 1024 * 1024; // 20MB
 /** POST /api/upload 上传临时文件到对象存储，仅用于本次单词识别 */
 export async function POST(request: NextRequest) {
   try {
+    const ctx = await requireAccount();
+    if (!ctx) return NextResponse.json({ error: '未登录' }, { status: 401 });
+
     const formData = await request.formData();
     const file = formData.get('file');
     if (!(file instanceof File)) {
@@ -45,14 +49,14 @@ export async function POST(request: NextRequest) {
     const safeName = file.name.replace(/[^\w.-]/g, '_').slice(-120) || 'file';
     const buffer = Buffer.from(await file.arrayBuffer());
 
-    // 注意：必须使用 uploadFile 返回的实际 key
+    // 注意：必须使用 uploadFile 返回的实际 key；按用户隔离目录
     const fileKey = await getStorage().uploadFile({
       fileContent: buffer,
-      fileName: `tmp-words/${batchId}/${safeName}`,
+      fileName: `tmp-words/u${ctx.account.id}/${batchId}/${safeName}`,
       contentType: file.type || 'application/octet-stream',
     });
 
-    const client = getSupabaseClient();
+    const client = ctx.supabase;
     const { data, error } = await client
       .from('upload_files')
       .insert({
@@ -60,6 +64,7 @@ export async function POST(request: NextRequest) {
         file_key: fileKey,
         file_type: fileType,
         batch_id: batchId,
+        user_id: ctx.account.id,
       })
       .select('id, filename, file_key, file_type, batch_id, created_at')
       .single();

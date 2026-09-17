@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { startOfToday, dayKey, probeWordsNewColumns, probeWordsStarred } from '@/lib/word-app';
+import { requireAccount } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 
@@ -48,7 +48,10 @@ function buildWeekly(records: Array<{ word: string; created_at: string }>): Arra
 /** GET /api/records 背诵统计 + 今日记录 + 历史记录 + 近 7 天趋势 + 趣味排行榜 */
 export async function GET() {
   try {
-    const client = getSupabaseClient();
+    const ctx = await requireAccount();
+    if (!ctx) return NextResponse.json({ error: '未登录' }, { status: 401 });
+    const client = ctx.supabase;
+    const uid = ctx.account.id;
     const hasNewColumns = await probeWordsNewColumns(client);
     const hasStarred = await probeWordsStarred(client);
 
@@ -62,10 +65,10 @@ export async function GET() {
     if (hasStarred) wordCols += ', starred';
 
     const [wordsRes, recordsRes, weekRes, mistakesRes] = await Promise.all([
-      client.from('words').select(wordCols).order('created_at', { ascending: false }),
-      client.from('practice_records').select('word, session_no, created_at').eq('round_index', 3).order('created_at', { ascending: false }).limit(300),
-      client.from('practice_records').select('word, created_at').eq('round_index', 3).gte('created_at', weekAgo.toISOString()).order('created_at', { ascending: false }).limit(2000),
-      client.from('practice_records').select('word, created_at').eq('round_index', 0).order('created_at', { ascending: false }).limit(3000),
+      client.from('words').select(wordCols).eq('user_id', uid).order('created_at', { ascending: false }),
+      client.from('practice_records').select('word, session_no, created_at').eq('round_index', 3).eq('user_id', uid).order('created_at', { ascending: false }).limit(300),
+      client.from('practice_records').select('word, created_at').eq('round_index', 3).eq('user_id', uid).gte('created_at', weekAgo.toISOString()).order('created_at', { ascending: false }).limit(2000),
+      client.from('practice_records').select('word, created_at').eq('round_index', 0).eq('user_id', uid).order('created_at', { ascending: false }).limit(3000),
     ]);
     if (wordsRes.error) throw new Error(`查询单词失败: ${wordsRes.error.message}`);
     if (recordsRes.error) throw new Error(`查询记录失败: ${recordsRes.error.message}`);

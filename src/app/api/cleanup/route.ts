@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { getStorage } from '@/lib/word-app';
+import { requireAccount } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -17,17 +18,21 @@ interface UploadFileRow {
  */
 export async function POST(request: NextRequest) {
   try {
+    const ctx = await requireAccount();
+    if (!ctx) return NextResponse.json({ error: '未登录' }, { status: 401 });
+
     const body = (await request.json()) as { batchId?: string };
     const batchId = body.batchId?.trim();
     if (!batchId) {
       return NextResponse.json({ error: '缺少 batchId' }, { status: 400 });
     }
 
-    const client = getSupabaseClient();
+    const client = ctx.supabase;
     const { data, error } = await client
       .from('upload_files')
       .select('id, filename, file_key')
       .eq('batch_id', batchId)
+      .eq('user_id', ctx.account.id)
       .eq('status', 'active');
     if (error) throw new Error(`查询临时文件失败: ${error.message}`);
 

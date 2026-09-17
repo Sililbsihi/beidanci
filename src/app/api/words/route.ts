@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { probeWordsNewColumns, probeWordsPhonetic } from '@/lib/word-app';
+import { requireAccount } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 
@@ -37,13 +37,16 @@ interface ExistingRow {
   import_count: number;
 }
 
-/** GET /api/words 全部单词列表（识别校对页使用） */
+/** GET /api/words 当前用户的全部单词列表（识别校对页使用） */
 export async function GET() {
   try {
-    const client = getSupabaseClient();
+    const ctx = await requireAccount();
+    if (!ctx) return NextResponse.json({ error: '未登录' }, { status: 401 });
+    const client = ctx.supabase;
     const { data, error } = await client
       .from('words')
       .select('id, word, pos, translation, translation_source, source_file, batch_id, correct_round, recite_count, total_typed, status, recited_at, created_at')
+      .eq('user_id', ctx.account.id)
       .order('created_at', { ascending: false });
     if (error) throw new Error(`查询单词失败: ${error.message}`);
     return NextResponse.json({ words: (data ?? []) as unknown as WordsListRow[] });
@@ -62,13 +65,17 @@ export async function GET() {
  */
 export async function POST(request: NextRequest) {
   try {
+    const ctx = await requireAccount();
+    if (!ctx) return NextResponse.json({ error: '未登录' }, { status: 401 });
+
     const body = (await request.json()) as { batchId?: string; items?: WordItem[] };
     const items = body.items ?? [];
     if (items.length === 0) {
       return NextResponse.json({ error: '没有可加入的单词' }, { status: 400 });
     }
 
-    const client = getSupabaseClient();
+    const client = ctx.supabase;
+    const userId = ctx.account.id;
     const hasNewColumns = await probeWordsNewColumns(client);
 
     // 规范化 + 去重
@@ -94,7 +101,8 @@ export async function POST(request: NextRequest) {
     const { data: existing, error: existError } = await client
       .from('words')
       .select(existCols)
-      .in('word', wordList);
+      .in('word', wordList)
+      .eq('user_id', userId);
     if (existError) throw new Error(`查重失败: ${existError.message}`);
     const existingRows = (existing ?? []) as unknown as Array<
       ExistingRow & { id?: number; recite_count?: number; import_count?: number; phonetic?: string | null }
@@ -111,6 +119,7 @@ export async function POST(request: NextRequest) {
         source_file: item.source_file?.slice(0, 250) ?? null,
         batch_id: (item.batchId ?? body.batchId)?.slice(0, 36) ?? null,
         status: 'pending',
+        user_id: userId,
         ...(hasNewColumns ? { target_recite: 1, import_count: 1 } : {}),
         ...(hasPhonetic ? { phonetic: item.phonetic?.slice(0, 60) || null } : {}),
       }));
@@ -138,7 +147,7 @@ export async function POST(request: NextRequest) {
         if (item.translation) patch.translation = item.translation.slice(0, 200);
         if (item.pos) patch.pos = item.pos.slice(0, 20);
         if (hasPhonetic && item.phonetic && !row.phonetic) patch.phonetic = item.phonetic.slice(0, 60);
-        const { error: updateError } = await client.from('words').update(patch).eq('id', row.id);
+        const { error: updateError } = await client.from('words').update(patch).eq('id', row.id).eq('user_id', userId);
         if (updateError) throw new Error(`重复导入处理失败: ${updateError.message}`);
         reimported += 1;
       }

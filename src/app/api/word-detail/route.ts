@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getLLM } from '@/lib/word-app';
+import { requireAccount } from '@/lib/auth';
 import { SearchClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
 
 export const runtime = 'nodejs';
@@ -153,6 +154,9 @@ async function buildGenericSentence(word: string): Promise<Partial<WordDetail>> 
 /** POST /api/word-detail 生成单词的词源、词根与一句真实例句（三级兜底保证有句可用） */
 export async function POST(request: NextRequest) {
   try {
+    const ctx = await requireAccount();
+    if (!ctx) return NextResponse.json({ error: '未登录' }, { status: 401 });
+    void ctx;
     const body = (await request.json()) as { word?: string };
     const word = (body.word ?? '').trim().toLowerCase();
     if (!word || word.length > 40) {

@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseClient } from '@/storage/database/supabase-client';
 import {
   extractTextFromFetchResponse,
   extractWordsFromImage,
@@ -8,6 +7,7 @@ import {
   getStorage,
   translateWordsBatch,
 } from '@/lib/word-app';
+import { consumeRecognizeQuota, requireAccount } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -19,19 +19,31 @@ interface UploadFileRow {
   file_type: string;
 }
 
-/** POST /api/recognize 识别文件中的英文单词（图片走多模态 OCR，文档走解析 + LLM 选词） */
+/** POST /api/recognize 识别文件中的英文单词（图片走多模态 OCR，文档走解析 + LLM 选词）；受每日识别配额限制 */
 export async function POST(request: NextRequest) {
   try {
+    const ctx = await requireAccount();
+    if (!ctx) return NextResponse.json({ error: '未登录' }, { status: 401 });
+
     const body = (await request.json()) as { fileId?: number };
     if (!body.fileId) {
       return NextResponse.json({ error: '缺少 fileId' }, { status: 400 });
     }
 
-    const client = getSupabaseClient();
+    // 每日识别配额（站长不限）：满额直接拦截，不启动 LLM 调用
+    if (ctx.recognizeQuota.limit !== null && ctx.recognizeQuota.used >= ctx.recognizeQuota.limit) {
+      return NextResponse.json(
+        { error: `今日 ${ctx.recognizeQuota.limit} 次识别已用完，明天再来吧`, quotaExhausted: true },
+        { status: 429 },
+      );
+    }
+
+    const client = ctx.supabase;
     const { data: fileRows, error: fileError } = await client
       .from('upload_files')
       .select('id, filename, file_key, file_type')
       .eq('id', body.fileId)
+      .eq('user_id', ctx.account.id)
       .limit(1);
     if (fileError) throw new Error(`查询文件失败: ${fileError.message}`);
     const file = fileRows?.[0] as UploadFileRow | undefined;
@@ -81,6 +93,10 @@ export async function POST(request: NextRequest) {
     } catch (translationError) {
       console.warn('[recognize] 批量释义失败，释义留给前端兜底', translationError);
     }
+
+    // 识别成功扣减每日配额（站长不限；满额在识别前已拦截）
+    const admitted = await consumeRecognizeQuota(ctx);
+    if (!admitted) console.warn(`[recognize] 账号 ${ctx.account.id} 配额边界竞态，本次仍已放行`);
 
     // 文件即用即焚：单词已提取完毕，立即删除对象存储文件并标记记录为 deleted（失败不阻塞返回）
     try {

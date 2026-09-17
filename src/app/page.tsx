@@ -4,8 +4,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   CloudUpload, Image as ImageIcon, FileText, File as FileIcon, Presentation, Table2,
-  ShieldCheck, Loader2, Search, Pencil, Trash2, Sparkles, CircleCheck, CircleAlert, ListPlus,
+  ShieldCheck, Loader2, Search, Pencil, Trash2, Sparkles, CircleCheck, CircleAlert, ListPlus, Zap,
 } from 'lucide-react';
+import { useAccount } from '@/lib/use-account';
 
 interface UploadTask {
   key: string;
@@ -44,6 +45,7 @@ const RAINBOW_BAR =
 export default function HomePage() {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
+  const { account, refresh: refreshAccount } = useAccount();
   const [dragOver, setDragOver] = useState(false);
   const [tasks, setTasks] = useState<UploadTask[]>([]);
   const [words, setWords] = useState<WordDraft[]>([]);
@@ -249,9 +251,10 @@ async function recognizeWithRetry(
       }
 
       setBusy(false);
+      void refreshAccount();
       await fillTranslations();
     },
-    [fillTranslations, patchTask],
+    [fillTranslations, patchTask, refreshAccount],
   );
 
   /** 剪贴板粘贴上传：截图/复制的文件直接走识别；复制的英文文字自动包装成 txt 走识别 */
@@ -368,7 +371,21 @@ async function recognizeWithRetry(
     <div className="space-y-6">
       {/* 页面标题 */}
       <div>
-        <h1 className="text-2xl font-bold font-display text-on-surface">上传文件，识别单词</h1>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-bold font-display text-on-surface">上传文件，识别单词</h1>
+          {account && account.recognize.limit !== null && (
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-primary bg-primary/10 rounded-full px-3 py-1">
+              <Zap className="w-3.5 h-3.5" />
+              今日识别 {account.recognize.used}/{account.recognize.limit} 次
+            </span>
+          )}
+          {account && account.recognize.limit === null && (
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-primary bg-primary/10 rounded-full px-3 py-1">
+              <Zap className="w-3.5 h-3.5" />
+              识别次数不限
+            </span>
+          )}
+        </div>
         <p className="text-sm text-on-surface-variant mt-1">
           支持图片（jpg/png/jpeg）、Word、PDF、PPT、Excel，自动提取英文单词并匹配中文释义
         </p>
@@ -403,6 +420,7 @@ async function recognizeWithRetry(
         </div>
         <p className="mt-4 font-display font-bold text-lg text-on-surface">点击、拖拽或直接 Ctrl+V 粘贴</p>
         <p className="mt-1 text-xs text-on-surface-variant">单次最多 5 个文件，单个不超过 20MB；粘贴截图或复制的英文段落也可以直接识别</p>
+        <p className="mt-1 text-xs text-primary/80 font-medium">每次识别不超过 200 个单词，超出部分将自动截取</p>
         <div className="mt-6 flex flex-wrap justify-center gap-2.5">
           {FORMAT_TAGS.map((tag) => (
             <span

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { translateWordsBatch, probeWordsPhonetic } from '@/lib/word-app';
-import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { requireAccount, type AuthContext } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -15,6 +15,8 @@ interface TranslationResult {
 /** POST /api/translate 批量 LLM 直译补齐缺失释义（1-2 个，; 分隔）与美式音标，完成后直接回写 words 表 */
 export async function POST(request: NextRequest) {
   try {
+    const ctx = await requireAccount();
+    if (!ctx) return NextResponse.json({ error: '未登录' }, { status: 401 });
     const body = (await request.json()) as { words?: string[]; persist?: boolean };
     const words = (body.words ?? [])
       .filter((w) => typeof w === 'string')
@@ -37,7 +39,7 @@ export async function POST(request: NextRequest) {
 
     // 默认把结果直接回写 words 表（只补空字段，不覆盖已有内容），前端无需逐词 PATCH
     if (body.persist !== false) {
-      void persistTranslations(results);
+      void persistTranslations(results, ctx);
     }
 
     return NextResponse.json({ translations: results });
@@ -48,10 +50,11 @@ export async function POST(request: NextRequest) {
 }
 
 /** 把有释义/音标的词写回 words 表：先读当前值只补空字段（缺 phonetic 列时自动降级为仅释义），每波 20 个并发 */
-async function persistTranslations(results: TranslationResult[]): Promise<void> {
+async function persistTranslations(results: TranslationResult[], ctx: AuthContext): Promise<void> {
   const hits = results.filter((r) => r.translation || r.phonetic);
   if (hits.length === 0) return;
-  const client = getSupabaseClient();
+  const client = ctx.supabase;
+  const uid = ctx.account.id;
   const hasPhonetic = await probeWordsPhonetic(client);
 
   // 读取现有值：仅回填空字段（不覆盖已有释义/音标）
@@ -63,6 +66,7 @@ async function persistTranslations(results: TranslationResult[]): Promise<void> 
     const { data, error } = await client
       .from('words')
       .select(hasPhonetic ? 'word, translation, phonetic' : 'word, translation')
+      .eq('user_id', uid)
       .in('word', wave);
     if (error) {
       console.warn('[translate] 读取现有释义失败:', error.message);
@@ -88,7 +92,7 @@ async function persistTranslations(results: TranslationResult[]): Promise<void> 
           patch.phonetic = hit.phonetic;
         }
         if (Object.keys(patch).length === 0) return Promise.resolve();
-        return client.from('words').update(patch).eq('word', hit.word);
+        return client.from('words').update(patch).eq('word', hit.word).eq('user_id', uid);
       }),
     );
     for (const item of settled) {

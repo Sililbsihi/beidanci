@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { requireAccount } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 
@@ -7,9 +8,11 @@ interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
-/** PATCH /api/words/[id] 编辑单词（拼写 / 词性 / 释义） */
+/** PATCH /api/words/[id] 编辑单词（拼写 / 词性 / 释义 / 星标）——仅限本人单词 */
 export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
+    const ctx = await requireAccount();
+    if (!ctx) return NextResponse.json({ error: '未登录' }, { status: 401 });
     const { id } = await context.params;
     const wordId = Number(id);
     if (!Number.isInteger(wordId)) {
@@ -32,11 +35,12 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: '没有需要更新的字段' }, { status: 400 });
     }
 
-    const client = getSupabaseClient();
+    const client = ctx.supabase;
     const { data, error } = await client
       .from('words')
       .update(updates)
       .eq('id', wordId)
+      .eq('user_id', ctx.account.id)
       .select('id, word, pos, translation, translation_source, source_file, correct_round, recite_count, total_typed, status, starred')
       .maybeSingle();
     if (error) throw new Error(`更新单词失败: ${error.message}`);
@@ -49,17 +53,19 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   }
 }
 
-/** DELETE /api/words/[id] 删除单词（背诵流水级联删除） */
+/** DELETE /api/words/[id] 删除单词（背诵流水级联删除）——仅限本人单词 */
 export async function DELETE(_request: NextRequest, context: RouteContext) {
   try {
+    const ctx = await requireAccount();
+    if (!ctx) return NextResponse.json({ error: '未登录' }, { status: 401 });
     const { id } = await context.params;
     const wordId = Number(id);
     if (!Number.isInteger(wordId)) {
       return NextResponse.json({ error: '无效的单词 ID' }, { status: 400 });
     }
 
-    const client = getSupabaseClient();
-    const { error } = await client.from('words').delete().eq('id', wordId);
+    const client = ctx.supabase;
+    const { error } = await client.from('words').delete().eq('id', wordId).eq('user_id', ctx.account.id);
     if (error) throw new Error(`删除单词失败: ${error.message}`);
 
     return NextResponse.json({ success: true });

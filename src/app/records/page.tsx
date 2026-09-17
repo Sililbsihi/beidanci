@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BookOpen, Repeat, Flame, Sun, ArrowRight, History, CalendarDays, TrendingUp, Trophy, AlertCircle, Ruler, Repeat2,
-  Star, X, Sparkles, BookMarked, Theater, CheckCircle2, Heart, MessageCircle, Send, ShieldCheck, Trash2, EyeOff,
+  Star, X, Sparkles, BookMarked, Theater, CheckCircle2, Heart, MessageCircle, Send, ShieldCheck,
 } from 'lucide-react';
+import Link from 'next/link';
 import type { ReactNode } from 'react';
 
 interface WordRow {
@@ -626,11 +627,6 @@ interface FeedbackMessage {
   created_at: string;
 }
 
-interface AdminFeedbackMessage extends FeedbackMessage {
-  contact: string;
-  status: string;
-}
-
 /** 问题反馈留言板：任何人可留言（昵称 + 联系方式必填），站长审核后公开展示；联系方式仅站长可见 */
 function FeedbackBoard() {
   const [ready, setReady] = useState(true);
@@ -641,11 +637,6 @@ function FeedbackBoard() {
   const [content, setContent] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
-
-  const [adminOpen, setAdminOpen] = useState(false);
-  const [adminKey, setAdminKey] = useState('');
-  const [adminMsgs, setAdminMsgs] = useState<AdminFeedbackMessage[] | null>(null);
-  const [adminErr, setAdminErr] = useState('');
 
   const loadMessages = useCallback(async () => {
     try {
@@ -694,29 +685,6 @@ function FeedbackBoard() {
     }
   };
 
-  const adminCall = async (action: 'list' | 'approve' | 'hide' | 'delete', id?: number) => {
-    setAdminErr('');
-    try {
-      const res = await fetch('/api/feedback/admin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-admin-key': adminKey },
-        body: JSON.stringify(id === undefined ? { action } : { action, id }),
-      });
-      const json = (await res.json()) as { messages?: AdminFeedbackMessage[]; error?: string };
-      if (!res.ok) {
-        setAdminErr(json.error ?? '操作失败');
-        return;
-      }
-      if (action === 'list') {
-        setAdminMsgs(json.messages ?? []);
-      } else {
-        void adminCall('list');
-      }
-    } catch {
-      setAdminErr('网络异常');
-    }
-  };
-
   return (
     <section className="bg-surface/80 backdrop-blur-md rounded-2xl shadow-card p-5 relative overflow-hidden">
       <div className={`absolute top-0 left-0 right-0 h-1 ${RAINBOW_BAR} opacity-70`} />
@@ -725,15 +693,14 @@ function FeedbackBoard() {
           <MessageCircle className="w-4.5 h-4.5 text-primary" />
           问题反馈 · 留言板
         </h2>
-        <button
-          type="button"
-          onClick={() => setAdminOpen(true)}
-          className="border-none cursor-pointer inline-flex items-center gap-1 text-xs text-on-surface-variant/70 hover:text-primary transition-colors"
-          title="站长管理留言"
+        <Link
+          href="/admin"
+          className="inline-flex items-center gap-1 text-xs text-on-surface-variant/70 hover:text-primary transition-colors"
+          title="站长面板：账号管理、全站统计与留言审核"
         >
           <ShieldCheck className="w-3.5 h-3.5" />
-          站长管理
-        </button>
+          站长面板
+        </Link>
       </div>
 
       <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -794,87 +761,6 @@ function FeedbackBoard() {
               </div>
             ))
           )}
-        </div>
-      )}
-
-      {adminOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={() => setAdminOpen(false)}>
-          <div className="bg-surface rounded-2xl shadow-float p-5 max-w-lg w-full max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between">
-              <h3 className="font-display font-bold text-on-surface inline-flex items-center gap-2">
-                <ShieldCheck className="w-4.5 h-4.5 text-primary" />
-                留言管理
-              </h3>
-              <button type="button" onClick={() => setAdminOpen(false)} className="border-none cursor-pointer text-on-surface-variant hover:text-on-surface" aria-label="关闭">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="mt-3 flex gap-2">
-              <input
-                type="password"
-                value={adminKey}
-                onChange={(e) => setAdminKey(e.target.value)}
-                placeholder="管理密钥"
-                className="flex-1 bg-surface-container border-none rounded-lg px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none focus:ring-2 focus:ring-primary/30"
-              />
-              <button
-                type="button"
-                onClick={() => void adminCall('list')}
-                className="border-none cursor-pointer px-3.5 py-2 rounded-lg text-sm font-medium text-white bg-primary hover:bg-primary/90 transition-colors"
-              >
-                查看
-              </button>
-            </div>
-            {adminErr && <p className="mt-2 text-xs text-jelly-red">{adminErr}</p>}
-            <div className="mt-4 space-y-3">
-              {(adminMsgs ?? []).map((m) => (
-                <div key={m.id} className="bg-surface-container/60 rounded-xl px-4 py-3">
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <span className="text-sm font-medium text-on-surface inline-flex items-center gap-2">
-                      {m.nickname}
-                      {m.status !== 'approved' && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-jelly-orange/15 text-jelly-orange">待审核</span>
-                      )}
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                      {m.status !== 'approved' ? (
-                        <button
-                          type="button"
-                          onClick={() => void adminCall('approve', m.id)}
-                          className="border-none cursor-pointer text-[10px] px-2 py-1 rounded-full bg-jelly-green/15 text-jelly-green inline-flex items-center gap-1"
-                        >
-                          <CheckCircle2 className="w-3 h-3" />
-                          通过
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => void adminCall('hide', m.id)}
-                          className="border-none cursor-pointer text-[10px] px-2 py-1 rounded-full bg-surface-container text-on-surface-variant inline-flex items-center gap-1"
-                        >
-                          <EyeOff className="w-3 h-3" />
-                          下架
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => void adminCall('delete', m.id)}
-                        className="border-none cursor-pointer text-[10px] px-2 py-1 rounded-full bg-jelly-red/15 text-jelly-red inline-flex items-center gap-1"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                        删除
-                      </button>
-                    </div>
-                  </div>
-                  <p className="mt-1 text-sm text-on-surface-variant whitespace-pre-wrap break-words">{m.content}</p>
-                  <p className="mt-1.5 text-[10px] text-on-surface-variant/70">联系方式：{m.contact}</p>
-                </div>
-              ))}
-              {adminMsgs !== null && adminMsgs.length === 0 && (
-                <p className="text-xs text-on-surface-variant/60">还没有任何留言</p>
-              )}
-            </div>
-          </div>
         </div>
       )}
     </section>

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { requireAccount } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 
@@ -22,16 +23,20 @@ interface WordRow {
  */
 export async function POST(request: NextRequest) {
   try {
+    const ctx = await requireAccount();
+    if (!ctx) return NextResponse.json({ error: '未登录' }, { status: 401 });
+
     const body = (await request.json()) as { wordId?: number; input?: string };
     if (!body.wordId || typeof body.input !== 'string') {
       return NextResponse.json({ error: '缺少 wordId 或 input' }, { status: 400 });
     }
 
-    const client = getSupabaseClient();
+    const client = ctx.supabase;
     const { data: rows, error } = await client
       .from('words')
       .select('id, word, correct_round, recite_count, total_typed')
       .eq('id', body.wordId)
+      .eq('user_id', ctx.account.id)
       .limit(1);
     if (error) throw new Error(`查询单词失败: ${error.message}`);
     const word = rows?.[0] as WordRow | undefined;
@@ -53,6 +58,7 @@ export async function POST(request: NextRequest) {
         word: word.word,
         round_index: 0,
         session_no: word.recite_count,
+        user_id: ctx.account.id,
       });
       if (mistakeError) console.error('[practice/type] 写入错误流水失败', mistakeError);
       return NextResponse.json({
@@ -99,6 +105,7 @@ export async function POST(request: NextRequest) {
           word: word.word,
           round_index: newRound,
           session_no: reciteCount + 1,
+          user_id: ctx.account.id,
         });
         if (recordError) throw new Error(`写入背诵记录失败: ${recordError.message}`);
         return NextResponse.json({

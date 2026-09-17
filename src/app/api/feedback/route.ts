@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { requireAccount } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,8 +28,10 @@ export async function GET() {
   return NextResponse.json({ ready: true, messages: data ?? [] });
 }
 
-/** POST：提交留言（任何人可留言，但昵称与联系方式必填；进入待审核队列） */
+/** POST：提交留言（需登录；昵称与联系方式必填；进入待审核队列，联系方式仅站长可见） */
 export async function POST(request: NextRequest) {
+  const ctx = await requireAccount();
+  if (!ctx) return NextResponse.json({ error: '请先登录后再留言' }, { status: 401 });
   let body: { nickname?: unknown; contact?: unknown; content?: unknown };
   try {
     body = await request.json();
@@ -48,7 +51,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: '留言内容需在 300 字以内' }, { status: 400 });
   }
   const client = getSupabaseClient();
-  const { error } = await client.from('feedback_messages').insert({ nickname, contact, content, status: 'pending' });
+  const { error } = await client.from('feedback_messages').insert({ nickname, contact, content, status: 'pending', user_id: ctx.account.id });
   if (error) {
     if (isMissingTable(error.message)) {
       return NextResponse.json({ error: '评论功能正在配置中，请稍后再试' }, { status: 503 });

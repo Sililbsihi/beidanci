@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { probeWordsNewColumns, probeWordsStarred, probeWordsPhonetic } from '@/lib/word-app';
+import { requireAccount } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 
@@ -33,7 +33,9 @@ interface WordRow {
  */
 export async function GET() {
   try {
-    const client = getSupabaseClient();
+    const ctx = await requireAccount();
+    if (!ctx) return NextResponse.json({ error: '未登录' }, { status: 401 });
+    const client = ctx.supabase;
     const hasNewColumns = await probeWordsNewColumns(client);
     const hasStarred = await probeWordsStarred(client);
     const hasPhonetic = await probeWordsPhonetic(client);
@@ -44,7 +46,7 @@ export async function GET() {
     if (hasStarred) selectCols += ', starred';
     if (hasPhonetic) selectCols += ', phonetic';
 
-    const { data, error } = await client.from('words').select(selectCols).order('id', { ascending: true });
+    const { data, error } = await client.from('words').select(selectCols).eq('user_id', ctx.account.id).order('id', { ascending: true });
     if (error) throw new Error(`查询队列失败: ${error.message}`);
 
     const rows = (data ?? []) as unknown as WordRow[];
