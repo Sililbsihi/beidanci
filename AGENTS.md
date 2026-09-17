@@ -33,7 +33,7 @@ src/
 ├── app/
 │   ├── page.tsx                  # 上传识别页（/；支持点击/拖拽/Ctrl+V 粘贴截图或英文文本，粘贴文本自动包装为 txt 走识别链路）
 │   ├── practice/page.tsx         # 背诵练习页（/practice，照抄键入核心交互；WordCard 键入状态局部化 + QueueItem memo，拼写零卡顿；加载后自动补齐缺释义/缺音标的未背完词，单词大字下方显示音标）
-│   ├── records/page.tsx          # 背诵记录页（/records）
+│   ├── records/page.tsx          # 背诵记录页（/records；含支持作者收款码弹窗 public/alipay-qrcode.png、问题反馈留言板 FeedbackBoard、气泡排行）
 │   ├── layout.tsx                # 全局布局 + 顶部导航
 │   ├── globals.css               # @theme 设计变量（原型迁移源）+ 果冻动画 keyframes
 │   └── api/
@@ -46,16 +46,19 @@ src/
 │       ├── practice/type/route.ts  # POST 拼写校验（错误清零重抄并写错误流水；正确+1，满 3 遍完成一轮背诵）
 │       ├── records/route.ts      # GET 统计 + 星标词列表 + 一周趋势 + 今日记录 + 历史分组 + 三个排行榜（含释义供气泡拼写提示）
 │       ├── word-detail/route.ts  # POST LLM 生成单词详情（词源/词根/双语出处/角色/翻译/剧情背景）；例句三级兜底保证 100% 有例句：①LLM 分级选句（话剧→文学→新闻）+ 联网探针核验；②核验不过则联网搜索真实网页摘句（柯林斯词典/新闻，LLM 仅补翻译与背景）；③仍无则通用例句诚实标注 General Example；缓存 key jelly-detail:v4:*，记录页星系弹窗用
+│       ├── feedback/route.ts    # GET 已审核留言（表缺失返回 ready:false）/ POST 提交留言（昵称+联系方式必填，进待审核队列）
+│       ├── feedback/admin/route.ts # POST 站长审核（x-admin-key 鉴权：list/approve/hide/delete；密钥 FEEDBACK_ADMIN_KEY || APP_FEEDBACK_ADMIN_KEY || jelly-words-admin）
 │       └── cleanup/route.ts      # POST 删除批次临时文件（兜底接口，识别即焚后通常无需调用）
 ├── components/site-header.tsx    # 顶部导航（当前页高亮）
 ├── lib/word-app.ts               # SDK 客户端单例 + 识别/释义/JSON 解析等共享函数
 └── storage/database/             # Supabase 数据层（schema + client）
 ```
 
-## 数据模型（3 张表）
+## 数据模型（4 张表）
 
 - `words`：word（小写唯一）、pos、translation、translation_source（upload/search）、source_file、batch_id、correct_round（当前轮 0-3）、recite_count（已背诵轮数）、target_recite（本轮需完成遍数，重复导入时提升为 recite_count+1）、import_count（导入次数）、total_typed（累计正确拼写数）、status（pending/practicing/done）、starred（星标，记录页组成星系）、phonetic（美式 IPA 音标，LLM 批量直译顺带生成）、recited_at（最后完成一轮的时间，用于"今日记录"）
 - `upload_files`：filename、file_key（S3 key）、file_type（image/pdf/word/ppt/excel/text）、batch_id、status（active/deleted）、deleted_at
+- `feedback_messages`：nickname、contact（联系方式仅站长可见，公开接口不下发）、content、status（pending/approved，站长筛选后 approved 才公开）、created_at；平台库/用户库需手动执行 DDL 建表
 - `practice_records`：word_id（cascade）、word、round_index（本轮第几遍 1-3，**0 表示拼错流水**，用于"犯错最多"排行）、session_no（第几次背诵轮）、created_at；round_index=3 的记录代表完成一轮背诵（历史分组、连续天数与一周趋势以此为准）
 
 ## 代码风格

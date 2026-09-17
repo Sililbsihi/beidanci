@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BookOpen, Repeat, Flame, Sun, ArrowRight, History, CalendarDays, TrendingUp, Trophy, AlertCircle, Ruler, Repeat2,
-  Star, X, Sparkles, BookMarked, Theater, CheckCircle2,
+  Star, X, Sparkles, BookMarked, Theater, CheckCircle2, Heart, MessageCircle, Send, ShieldCheck, Trash2, EyeOff,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 
@@ -68,11 +68,16 @@ const RAINBOW_BAR =
   'bg-[linear-gradient(90deg,#E57373_0%,#F0A45B_20%,#E9C96A_40%,#7E9F7A_60%,#7FA3C9_80%,#A88BC9_100%)]';
 const RAINBOW_SOLID = ['#E57373', '#F0A45B', '#E9C96A', '#7E9F7A', '#7FA3C9', '#A88BC9'];
 
-/** 气泡池槽位（百分比坐标，覆盖池子四角与中部，避免重叠） */
+/** 气泡池槽位（百分比坐标，居中锚点，覆盖池子四角与中部，避免重叠） */
 const BUBBLE_SLOTS = [
-  { x: 6, y: 16 }, { x: 34, y: 46 }, { x: 62, y: 10 }, { x: 80, y: 44 },
-  { x: 16, y: 54 }, { x: 48, y: 20 }, { x: 70, y: 60 }, { x: 4, y: 38 },
+  { x: 18, y: 24 }, { x: 50, y: 52 }, { x: 82, y: 24 }, { x: 80, y: 66 },
+  { x: 18, y: 70 }, { x: 48, y: 20 }, { x: 66, y: 76 }, { x: 12, y: 48 },
 ];
+
+/** 气泡尺寸与单词长度成比例（短词小泡、长词大泡，封顶防止溢出） */
+function sizeForWord(word: string): number {
+  return Math.min(78, Math.round(40 + word.length * 2.6));
+}
 
 function formatDay(day: string): string {
   const [y, m, d] = day.split('-');
@@ -532,7 +537,7 @@ function StarGalaxy({ words, onPick }: { words: StarredWord[]; onPick: (w: Starr
   );
 }
 
-/** 气泡池：榜单词以漂浮气泡展现，点击进入当场拼写 */
+/** 气泡池：榜单词以透明气泡展现（气泡大小与单词长度成比例），点击进入当场拼写 */
 function BubblePool({ items, empty }: { items: Array<{ key: string; label: string; value: string; size: number; translation?: string | null }>; empty: string }) {
   const [spelling, setSpelling] = useState<{ word: string; translation: string | null } | null>(null);
   if (items.length === 0) {
@@ -540,31 +545,36 @@ function BubblePool({ items, empty }: { items: Array<{ key: string; label: strin
   }
   return (
     <>
-      <div className="mt-3 relative h-36 rounded-xl bg-surface-container/50 overflow-hidden">
+      <div className="mt-3 relative h-44 rounded-xl bg-surface-container/50 overflow-hidden">
         {items.map((item, i) => {
           const slot = BUBBLE_SLOTS[i % BUBBLE_SLOTS.length];
+          const color = RAINBOW_SOLID[i % RAINBOW_SOLID.length];
           return (
-            <button
+            <div
               key={item.key}
-              type="button"
-              onClick={() => setSpelling({ word: item.label, translation: item.translation ?? null })}
-              title={`${item.label} · ${item.value}（点击当场拼写）`}
-              className="absolute rounded-full border-none cursor-pointer flex items-center justify-center text-white font-display font-semibold shadow-card hover:scale-[1.15] hover:shadow-float hover:z-10 transition-transform duration-300 animate-float-soft"
-              style={{
-                left: `${slot.x}%`,
-                top: `${slot.y}%`,
-                width: item.size,
-                height: item.size,
-                backgroundColor: RAINBOW_SOLID[i % RAINBOW_SOLID.length],
-                fontSize: item.size >= 58 ? 13 : item.size >= 46 ? 11 : 9,
-                padding: 3,
-                wordBreak: 'break-all',
-                lineHeight: 1.1,
-                animationDelay: `${(i % 4) * 0.6}s`,
-              }}
+              className="absolute"
+              style={{ left: `${slot.x}%`, top: `${slot.y}%`, transform: 'translate(-50%, -50%)', zIndex: 1 }}
             >
-              {item.label}
-            </button>
+              <button
+                type="button"
+                onClick={() => setSpelling({ word: item.label, translation: item.translation ?? null })}
+                title={`${item.label} · ${item.value}（点击当场拼写）`}
+                className="rounded-full cursor-pointer flex items-center justify-center text-white font-display font-semibold border border-white/50 backdrop-blur-[2px] shadow-card hover:scale-[1.15] hover:shadow-float transition-transform duration-300 animate-float-soft"
+                style={{
+                  width: item.size,
+                  height: item.size,
+                  backgroundColor: `${color}A6`,
+                  fontSize: item.size >= 68 ? 12 : item.size >= 58 ? 11 : item.size >= 48 ? 10 : 9,
+                  padding: 3,
+                  wordBreak: 'break-all',
+                  lineHeight: 1.1,
+                  textShadow: '0 1px 3px rgba(0,0,0,0.28)',
+                  animationDelay: `${(i % 4) * 0.6}s`,
+                }}
+              >
+                {item.label}
+              </button>
+            </div>
           );
         })}
         <span className="absolute bottom-2 right-3 text-[10px] text-on-surface-variant/60">点击气泡当场拼写</span>
@@ -574,10 +584,296 @@ function BubblePool({ items, empty }: { items: Array<{ key: string; label: strin
   );
 }
 
+/** 支持作者弹层：展示支付宝收款码（图片为 public/alipay-qrcode.png，站长可自行替换为真实收款码） */
+function SupportModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-surface rounded-2xl shadow-float p-6 max-w-xs w-full relative animate-jelly-pop" onClick={(e) => e.stopPropagation()}>
+        <button type="button" onClick={onClose} className="absolute top-3 right-3 border-none cursor-pointer text-on-surface-variant hover:text-on-surface transition-colors" aria-label="关闭">
+          <X className="w-5 h-5" />
+        </button>
+        <h3 className="font-display font-bold text-on-surface text-lg inline-flex items-center gap-2">
+          <Heart className="w-5 h-5 text-[#E57373] fill-[#E57373]" />
+          支持作者
+        </h3>
+        <p className="mt-1 text-xs text-on-surface-variant">如果这个背单词小站对你有帮助，欢迎请作者喝一杯奶茶</p>
+        <div className="mt-4 rounded-xl overflow-hidden bg-surface-container/60">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/alipay-qrcode.png" alt="支付宝收款码" className="w-full block" />
+        </div>
+        <p className="mt-3 text-center text-xs text-on-surface-variant">支付宝扫码 · 随喜支持</p>
+      </div>
+    </div>
+  );
+}
+
+interface FeedbackMessage {
+  id: number;
+  nickname: string;
+  content: string;
+  created_at: string;
+}
+
+interface AdminFeedbackMessage extends FeedbackMessage {
+  contact: string;
+  status: string;
+}
+
+/** 问题反馈留言板：任何人可留言（昵称 + 联系方式必填），站长审核后公开展示；联系方式仅站长可见 */
+function FeedbackBoard() {
+  const [ready, setReady] = useState(true);
+  const [messages, setMessages] = useState<FeedbackMessage[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [nickname, setNickname] = useState('');
+  const [contact, setContact] = useState('');
+  const [content, setContent] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [notice, setNotice] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [adminKey, setAdminKey] = useState('');
+  const [adminMsgs, setAdminMsgs] = useState<AdminFeedbackMessage[] | null>(null);
+  const [adminErr, setAdminErr] = useState('');
+
+  const loadMessages = useCallback(async () => {
+    try {
+      const res = await fetch('/api/feedback');
+      const json = (await res.json()) as { ready?: boolean; messages?: FeedbackMessage[] };
+      setReady(json.ready !== false);
+      setMessages(json.messages ?? []);
+    } catch {
+      setMessages([]);
+    } finally {
+      setLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadMessages();
+  }, [loadMessages]);
+
+  const submit = async () => {
+    if (submitting) return;
+    setNotice(null);
+    if (!nickname.trim() || !contact.trim() || !content.trim()) {
+      setNotice({ type: 'err', text: '昵称、联系方式和留言内容都要填写哦' });
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await fetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nickname: nickname.trim(), contact: contact.trim(), content: content.trim() }),
+      });
+      const json = (await res.json()) as { ok?: boolean; error?: string };
+      if (res.ok && json.ok) {
+        setNickname('');
+        setContact('');
+        setContent('');
+        setNotice({ type: 'ok', text: '留言已收到！站长筛选后会展示在这里' });
+      } else {
+        setNotice({ type: 'err', text: json.error ?? '提交失败，请稍后再试' });
+      }
+    } catch {
+      setNotice({ type: 'err', text: '网络异常，请稍后再试' });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const adminCall = async (action: 'list' | 'approve' | 'hide' | 'delete', id?: number) => {
+    setAdminErr('');
+    try {
+      const res = await fetch('/api/feedback/admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-key': adminKey },
+        body: JSON.stringify(id === undefined ? { action } : { action, id }),
+      });
+      const json = (await res.json()) as { messages?: AdminFeedbackMessage[]; error?: string };
+      if (!res.ok) {
+        setAdminErr(json.error ?? '操作失败');
+        return;
+      }
+      if (action === 'list') {
+        setAdminMsgs(json.messages ?? []);
+      } else {
+        void adminCall('list');
+      }
+    } catch {
+      setAdminErr('网络异常');
+    }
+  };
+
+  return (
+    <section className="bg-surface/80 backdrop-blur-md rounded-2xl shadow-card p-5 relative overflow-hidden">
+      <div className={`absolute top-0 left-0 right-0 h-1 ${RAINBOW_BAR} opacity-70`} />
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="font-display font-bold text-on-surface inline-flex items-center gap-2">
+          <MessageCircle className="w-4.5 h-4.5 text-primary" />
+          问题反馈 · 留言板
+        </h2>
+        <button
+          type="button"
+          onClick={() => setAdminOpen(true)}
+          className="border-none cursor-pointer inline-flex items-center gap-1 text-xs text-on-surface-variant/70 hover:text-primary transition-colors"
+          title="站长管理留言"
+        >
+          <ShieldCheck className="w-3.5 h-3.5" />
+          站长管理
+        </button>
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+        <input
+          value={nickname}
+          onChange={(e) => setNickname(e.target.value)}
+          maxLength={20}
+          placeholder="昵称（必填，将展示）"
+          className="w-full bg-surface-container border-none rounded-lg px-4 py-2.5 text-sm text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none focus:ring-2 focus:ring-primary/30"
+        />
+        <input
+          value={contact}
+          onChange={(e) => setContact(e.target.value)}
+          maxLength={100}
+          placeholder="联系方式（必填，仅站长可见）"
+          className="w-full bg-surface-container border-none rounded-lg px-4 py-2.5 text-sm text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none focus:ring-2 focus:ring-primary/30"
+        />
+      </div>
+      <textarea
+        value={content}
+        onChange={(e) => setContent(e.target.value)}
+        maxLength={300}
+        rows={3}
+        placeholder="想说什么都可以：问题、建议、鼓励…"
+        className="mt-3 w-full bg-surface-container border-none rounded-lg px-4 py-2.5 text-sm text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none"
+      />
+      <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
+        {notice ? (
+          <p className={`text-xs ${notice.type === 'ok' ? 'text-jelly-green' : 'text-jelly-red'}`}>{notice.text}</p>
+        ) : (
+          <p className="text-xs text-on-surface-variant/60">留言需站长筛选后才会公开展示；联系方式仅站长可见，不会公开</p>
+        )}
+        <button
+          type="button"
+          onClick={() => void submit()}
+          disabled={submitting}
+          className="border-none cursor-pointer inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium text-white bg-primary hover:bg-primary/90 active:scale-[0.98] transition-all disabled:opacity-50"
+        >
+          <Send className="w-3.5 h-3.5" />
+          {submitting ? '提交中…' : '提交留言'}
+        </button>
+      </div>
+
+      {loaded && (
+        <div className="mt-5 space-y-3">
+          {!ready ? (
+            <p className="text-xs text-on-surface-variant/60">评论功能正在配置中，稍后再来看看～</p>
+          ) : messages.length === 0 ? (
+            <p className="text-xs text-on-surface-variant/60">还没有留言，来抢沙发！</p>
+          ) : (
+            messages.map((m) => (
+              <div key={m.id} className="bg-surface-container/60 rounded-xl px-4 py-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium text-on-surface">{m.nickname}</span>
+                  <span className="text-[10px] text-on-surface-variant/60">{(m.created_at || '').slice(0, 10)}</span>
+                </div>
+                <p className="mt-1 text-sm text-on-surface-variant whitespace-pre-wrap break-words">{m.content}</p>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {adminOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={() => setAdminOpen(false)}>
+          <div className="bg-surface rounded-2xl shadow-float p-5 max-w-lg w-full max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="font-display font-bold text-on-surface inline-flex items-center gap-2">
+                <ShieldCheck className="w-4.5 h-4.5 text-primary" />
+                留言管理
+              </h3>
+              <button type="button" onClick={() => setAdminOpen(false)} className="border-none cursor-pointer text-on-surface-variant hover:text-on-surface" aria-label="关闭">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="mt-3 flex gap-2">
+              <input
+                type="password"
+                value={adminKey}
+                onChange={(e) => setAdminKey(e.target.value)}
+                placeholder="管理密钥"
+                className="flex-1 bg-surface-container border-none rounded-lg px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+              <button
+                type="button"
+                onClick={() => void adminCall('list')}
+                className="border-none cursor-pointer px-3.5 py-2 rounded-lg text-sm font-medium text-white bg-primary hover:bg-primary/90 transition-colors"
+              >
+                查看
+              </button>
+            </div>
+            {adminErr && <p className="mt-2 text-xs text-jelly-red">{adminErr}</p>}
+            <div className="mt-4 space-y-3">
+              {(adminMsgs ?? []).map((m) => (
+                <div key={m.id} className="bg-surface-container/60 rounded-xl px-4 py-3">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className="text-sm font-medium text-on-surface inline-flex items-center gap-2">
+                      {m.nickname}
+                      {m.status !== 'approved' && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-jelly-orange/15 text-jelly-orange">待审核</span>
+                      )}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {m.status !== 'approved' ? (
+                        <button
+                          type="button"
+                          onClick={() => void adminCall('approve', m.id)}
+                          className="border-none cursor-pointer text-[10px] px-2 py-1 rounded-full bg-jelly-green/15 text-jelly-green inline-flex items-center gap-1"
+                        >
+                          <CheckCircle2 className="w-3 h-3" />
+                          通过
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => void adminCall('hide', m.id)}
+                          className="border-none cursor-pointer text-[10px] px-2 py-1 rounded-full bg-surface-container text-on-surface-variant inline-flex items-center gap-1"
+                        >
+                          <EyeOff className="w-3 h-3" />
+                          下架
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => void adminCall('delete', m.id)}
+                        className="border-none cursor-pointer text-[10px] px-2 py-1 rounded-full bg-jelly-red/15 text-jelly-red inline-flex items-center gap-1"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        删除
+                      </button>
+                    </div>
+                  </div>
+                  <p className="mt-1 text-sm text-on-surface-variant whitespace-pre-wrap break-words">{m.content}</p>
+                  <p className="mt-1.5 text-[10px] text-on-surface-variant/70">联系方式：{m.contact}</p>
+                </div>
+              ))}
+              {adminMsgs !== null && adminMsgs.length === 0 && (
+                <p className="text-xs text-on-surface-variant/60">还没有任何留言</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function RecordsPage() {
   const [data, setData] = useState<RecordsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [detailWord, setDetailWord] = useState<StarredWord | null>(null);
+  const [supportOpen, setSupportOpen] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -620,11 +916,7 @@ export default function RecordsPage() {
     { dot: 'bg-jelly-green', label: '今日已背', value: `${stats.todayCount} 词` },
   ];
 
-  // 气泡大小按榜单数值映射（错误数 / 长度 / 导入次数）
-  const maxMistake = Math.max(...rankings.mistakes.map((m) => m.count), 1);
-  const maxLen = Math.max(...rankings.longest.map((l) => l.length), 1);
-  const maxReimport = Math.max(...rankings.reimported.map((r) => r.count), 1);
-
+  // 气泡大小与单词长度成比例（短词小泡、长词大泡）
   const bubbleCards: Array<{ icon: ReactNode; bar: string; title: string; empty: string; items: Array<{ key: string; label: string; value: string; size: number; translation?: string | null }> }> = [
     {
       icon: <AlertCircle className="w-4.5 h-4.5" />,
@@ -635,7 +927,7 @@ export default function RecordsPage() {
         key: m.word,
         label: m.word,
         value: `拼错 ${m.count} 次`,
-        size: Math.round(40 + (m.count / maxMistake) * 26),
+        size: sizeForWord(m.word),
         translation: m.translation ?? null,
       })),
     },
@@ -648,7 +940,7 @@ export default function RecordsPage() {
         key: l.word,
         label: l.word,
         value: `${l.length} 个字母`,
-        size: Math.round(40 + (l.length / maxLen) * 26),
+        size: sizeForWord(l.word),
         translation: l.translation ?? null,
       })),
     },
@@ -661,7 +953,7 @@ export default function RecordsPage() {
         key: r.word,
         label: r.word,
         value: `导入 ${r.count} 次`,
-        size: Math.round(40 + (r.count / maxReimport) * 26),
+        size: sizeForWord(r.word),
         translation: r.translation ?? null,
       })),
     },
@@ -694,6 +986,14 @@ export default function RecordsPage() {
             <span className="font-display font-bold text-lg text-on-surface leading-none">{item.value}</span>
           </div>
         ))}
+        <button
+          type="button"
+          onClick={() => setSupportOpen(true)}
+          className="ml-auto border-none cursor-pointer inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-medium text-white bg-[linear-gradient(90deg,#E57373,#F0A45B)] hover:opacity-90 active:scale-[0.97] transition-all shadow-card"
+        >
+          <Heart className="w-3.5 h-3.5 fill-white" />
+          支持作者
+        </button>
       </section>
 
       {/* 星词星系 */}
@@ -770,6 +1070,9 @@ export default function RecordsPage() {
           ))}
         </div>
       </section>
+
+      {/* 问题反馈 · 留言板 */}
+      <FeedbackBoard />
 
       {/* 今日记录 */}
       <section className="bg-surface/80 backdrop-blur-md rounded-2xl shadow-card p-5">
@@ -852,6 +1155,9 @@ export default function RecordsPage() {
 
       {/* 词详情弹层 */}
       {detailWord && <WordDetailModal starred={detailWord} onClose={closeDetail} />}
+
+      {/* 支持作者弹层 */}
+      {supportOpen && <SupportModal onClose={() => setSupportOpen(false)} />}
     </div>
   );
 }

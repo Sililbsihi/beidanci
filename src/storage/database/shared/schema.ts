@@ -55,3 +55,12 @@ export const practiceRecords = pgTable("practice_records", {
 			name: "practice_records_word_id_fkey"
 		}).onDelete("cascade"),
 ]);
+
+export const feedbackMessages = pgTable("feedback_messages", {
+	id: serial().primaryKey().notNull(),
+	nickname: varchar({ length: 40 }).notNull(),
+	contact: varchar({ length: 120 }).notNull(),
+	content: text().notNull(),
+	status: varchar({ length: 20 }).default('pending').notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+});
