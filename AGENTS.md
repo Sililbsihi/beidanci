@@ -33,7 +33,7 @@ src/
 ├── app/
 │   ├── page.tsx                  # 上传识别页（/；支持点击/拖拽/Ctrl+V 粘贴截图或英文文本，粘贴文本自动包装为 txt 走识别链路）
 │   ├── practice/page.tsx         # 背诵练习页（/practice，照抄键入核心交互；WordCard 键入状态局部化 + QueueItem memo，拼写零卡顿；加载后自动补齐缺释义/缺音标的未背完词，单词大字下方显示音标）
-│   ├── records/page.tsx          # 背诵记录页（/records；含支持作者收款码弹窗 public/alipay-qrcode.png、问题反馈留言板 FeedbackBoard、气泡排行）
+│   ├── records/page.tsx          # 背诵记录页（/records；含支持作者弹窗（双码：public/support-alipay.jpg 支付宝赞赏 + public/support-wechat.jpg 微信交流）、问题反馈留言板 FeedbackBoard、气泡排行）
 │   ├── layout.tsx                # 全局布局 + 顶部导航
 │   ├── globals.css               # @theme 设计变量（原型迁移源）+ 果冻动画 keyframes
 │   └── api/
