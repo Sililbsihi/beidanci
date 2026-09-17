@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '文件不存在' }, { status: 404 });
     }
 
-    let words: Array<{ word: string; pos?: string }> = [];
+    let words: Array<{ word: string; pos?: string; translation?: string; phonetic?: string }> = [];
 
     if (file.file_type === 'image') {
       // 图片：读取内容转 base64，交给多模态模型精准识别
@@ -72,7 +72,11 @@ export async function POST(request: NextRequest) {
     // 批量直译释义：识别完成即带释义返回，免去前端逐词搜索的漫长等待（失败不阻塞，留给前端兜底）
     try {
       const translations = await translateWordsBatch(words.map((w) => w.word));
-      words = words.map((w) => ({ ...w, translation: translations.get(w.word) ?? '' }));
+      words = words.map((w) => ({
+        ...w,
+        translation: translations.get(w.word)?.translation ?? '',
+        phonetic: translations.get(w.word)?.phonetic ?? '',
+      }));
       console.info(`[recognize] 批量释义完成 ${translations.size}/${words.length}`);
     } catch (translationError) {
       console.warn('[recognize] 批量释义失败，释义留给前端兜底', translationError);

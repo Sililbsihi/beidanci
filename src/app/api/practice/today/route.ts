@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
-import { probeWordsNewColumns, probeWordsStarred } from '@/lib/word-app';
+import { probeWordsNewColumns, probeWordsStarred, probeWordsPhonetic } from '@/lib/word-app';
 
 export const runtime = 'nodejs';
 
@@ -9,6 +9,7 @@ interface WordRow {
   word: string;
   pos: string | null;
   translation: string | null;
+  phonetic?: string | null;
   translation_source: string;
   source_file: string | null;
   batch_id: string | null;
@@ -35,11 +36,13 @@ export async function GET() {
     const client = getSupabaseClient();
     const hasNewColumns = await probeWordsNewColumns(client);
     const hasStarred = await probeWordsStarred(client);
+    const hasPhonetic = await probeWordsPhonetic(client);
 
     let selectCols = hasNewColumns
       ? 'id, word, pos, translation, translation_source, source_file, batch_id, correct_round, recite_count, total_typed, status, target_recite, created_at'
       : 'id, word, pos, translation, translation_source, source_file, batch_id, correct_round, recite_count, total_typed, status, created_at';
     if (hasStarred) selectCols += ', starred';
+    if (hasPhonetic) selectCols += ', phonetic';
 
     const { data, error } = await client.from('words').select(selectCols).order('id', { ascending: true });
     if (error) throw new Error(`查询队列失败: ${error.message}`);

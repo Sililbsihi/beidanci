@@ -97,6 +97,31 @@ export async function probeWordsStarred(client: unknown): Promise<boolean> {
   return wordsStarred;
 }
 
+let wordsPhonetic: boolean | null = null;
+
+/** 音标字段就绪（用户在 Supabase 执行过 phonetic 迁移 SQL 后为 true） */
+export function wordsPhoneticReady(): boolean {
+  return wordsPhonetic === true;
+}
+
+/** 探测 words 表是否已包含 phonetic 列，未建列时音标功能降级隐藏（不显示、不回写） */
+export async function probeWordsPhonetic(client: unknown): Promise<boolean> {
+  const c = client as {
+    from: (table: string) => { select: (cols: string) => { limit: (n: number) => Promise<{ error: { message: string } | null }> } };
+  };
+  if (wordsPhonetic !== null) return wordsPhonetic;
+  try {
+    const { error } = await c.from('words').select('phonetic').limit(1);
+    wordsPhonetic = !error;
+  } catch {
+    wordsPhonetic = false;
+  }
+  if (!wordsPhonetic) {
+    console.warn('[schema] words 表缺少 phonetic 列，音标功能降级隐藏');
+  }
+  return wordsPhonetic;
+}
+
 const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'];
 
 /** 根据文件名与 MIME 判定业务文件类型 */
@@ -336,9 +361,14 @@ export function extractWordsLocally(text: string): RecognizedWord[] {
   return words;
 }
 
-/** 批量 LLM 直译：小批次 + 并发池（单批输出 ~10 条释义保证秒级返回，N/12 批最多 16 路并发） */
-export async function translateWordsBatch(words: string[]): Promise<Map<string, string>> {
-  const result = new Map<string, string>();
+export interface TranslationEntry {
+  translation: string;
+  phonetic: string;
+}
+
+/** 批量 LLM 直译：小批次 + 并发池（单批输出 ~10 条释义保证秒级返回，N/12 批最多 16 路并发），同时输出美式 IPA 音标 */
+export async function translateWordsBatch(words: string[]): Promise<Map<string, TranslationEntry>> {
+  const result = new Map<string, TranslationEntry>();
   // 去重 + 归一化：重复词只翻一次
   const unique = Array.from(
     new Set(words.map((w) => w.trim().toLowerCase()).filter(Boolean)),
@@ -359,8 +389,8 @@ export async function translateWordsBatch(words: string[]): Promise<Map<string, 
       cursor += 1;
       try {
         const pairs = await translateChunk(batch);
-        for (const [word, translation] of pairs) {
-          if (translation) result.set(word, translation);
+        for (const [word, entry] of pairs) {
+          if (entry.translation || entry.phonetic) result.set(word, entry);
         }
       } catch (error) {
         console.warn('[translate] 批量释义批次失败:', error);
@@ -371,17 +401,18 @@ export async function translateWordsBatch(words: string[]): Promise<Map<string, 
   return result;
 }
 
-/** 单批直译：一次 LLM 调用输出该批全部释义 */
-async function translateChunk(batch: string[]): Promise<Map<string, string>> {
+/** 单批直译：一次 LLM 调用输出该批全部释义与音标 */
+async function translateChunk(batch: string[]): Promise<Map<string, TranslationEntry>> {
   const messages: Message[] = [
     { role: 'system', content: '你是英汉词典数据库，只输出 JSON 数组，不要输出任何其他文字。' },
     {
       role: 'user',
       content:
-        `为下列 ${batch.length} 个英文单词或短语各给出 1-2 个最常见的简体中文释义。要求：\n` +
+        `为下列 ${batch.length} 个英文单词或短语各给出 1-2 个最常见的简体中文释义和美式音标。要求：\n` +
         '1) 每个释义 2-6 个字，简洁准确；多词短语给出整体含义（如 fossil fuels → 化石燃料）；\n' +
         '2) 多个释义用「;」分隔，不带词性标注、不带序号、不带句号；\n' +
-        '3) 只输出 JSON 数组，格式：[{"word":"原词","translation":"释义"}]，word 必须与输入完全一致，不得遗漏。\n' +
+        '3) phonetic 为该词的美式 IPA 音标，不含斜杠、不含空格分隔的强调点可保留（如 ˈ）；不确定时给空字符串，严禁编造；\n' +
+        '4) 只输出 JSON 数组，格式：[{"word":"原词","translation":"释义","phonetic":"音标"}]，word 必须与输入完全一致，不得遗漏。\n' +
         `词表：${JSON.stringify(batch)}`,
     },
   ];
@@ -392,9 +423,9 @@ async function translateChunk(batch: string[]): Promise<Map<string, string>> {
   return parseTranslationPairs(String(response.content ?? ''));
 }
 
-/** 解析批量释义 JSON 输出（兼容围栏代码块与截断容错） */
-function parseTranslationPairs(content: string): Map<string, string> {
-  const map = new Map<string, string>();
+/** 解析批量释义+音标 JSON 输出（兼容围栏代码块与截断容错；phonetic 为可选字段，兼容旧格式输出） */
+function parseTranslationPairs(content: string): Map<string, TranslationEntry> {
+  const map = new Map<string, TranslationEntry>();
   let raw = String(content ?? '').trim();
   const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (fenced) raw = fenced[1].trim();
@@ -406,11 +437,13 @@ function parseTranslationPairs(content: string): Map<string, string> {
     if (!Array.isArray(parsed)) return map;
     for (const item of parsed) {
       if (!item || typeof item !== 'object') continue;
-      const rec = item as { word?: unknown; translation?: unknown };
-      if (typeof rec.word !== 'string' || typeof rec.translation !== 'string') continue;
+      const rec = item as { word?: unknown; translation?: unknown; phonetic?: unknown };
+      if (typeof rec.word !== 'string') continue;
       const key = rec.word.trim().toLowerCase();
-      const translation = rec.translation.trim();
-      if (key && translation) map.set(key, translation);
+      const translation = typeof rec.translation === 'string' ? rec.translation.trim() : '';
+      const phonetic =
+        typeof rec.phonetic === 'string' ? rec.phonetic.trim().replace(/^\/+|\/+$/g, '').slice(0, 60) : '';
+      if (key && (translation || phonetic)) map.set(key, { translation, phonetic });
     }
   } catch {
     // JSON 解析失败：返回空 Map，调用方按无释义兜底

@@ -24,6 +24,7 @@ export const words = pgTable("words", {
 	word: varchar({ length: 100 }).notNull(),
 	pos: varchar({ length: 20 }),
 	translation: text(),
+	phonetic: text(),
 	translationSource: varchar("translation_source", { length: 20 }).default('upload').notNull(),
 	sourceFile: varchar("source_file", { length: 255 }),
 	batchId: varchar("batch_id", { length: 36 }),

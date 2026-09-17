@@ -21,6 +21,8 @@ interface WordDraft {
   word: string;
   pos?: string;
   translation: string;
+  /** 美式 IPA 音标（识别/翻译时顺带返回，入库走 words POST） */
+  phonetic?: string;
   translationSource: 'upload' | 'search' | 'manual' | 'none';
   sourceFile?: string;
   batchId?: string;
@@ -87,12 +89,12 @@ export default function HomePage() {
             failedBatch = true;
             return;
           }
-          const data = (await res.json()) as { translations?: Array<{ word: string; translation: string }> };
+          const data = (await res.json()) as { translations?: Array<{ word: string; translation: string; phonetic?: string }> };
           const hits = data.translations ?? [];
           setWords((prev) =>
             prev.map((w) => {
               const hit = hits.find((t) => t.word === w.word);
-              if (hit?.translation) return { ...w, translation: hit.translation, translationSource: 'search', searching: false };
+              if (hit?.translation) return { ...w, translation: hit.translation, phonetic: hit.phonetic || w.phonetic, translationSource: 'search', searching: false };
               if (hit) return { ...w, searching: false };
               return w;
             }),
@@ -156,7 +158,7 @@ async function normalizeImage(file: File): Promise<{ file: File } | { error: str
 /** 识别请求：最多 2 次（LLM 偶发抖动自动重试一次），150s 超时 */
 async function recognizeWithRetry(
   fileId: number,
-): Promise<{ words?: Array<{ word: string; pos?: string; translation?: string }>; error?: string }> {
+): Promise<{ words?: Array<{ word: string; pos?: string; translation?: string; phonetic?: string }>; error?: string }> {
   let lastError = new Error('识别失败，请稍后重试');
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
@@ -166,7 +168,7 @@ async function recognizeWithRetry(
         150_000,
       );
       const data = (await res.json()) as {
-        words?: Array<{ word: string; pos?: string; translation?: string }>;
+        words?: Array<{ word: string; pos?: string; translation?: string; phonetic?: string }>;
         error?: string;
       };
       if (res.ok) return data;
@@ -229,6 +231,7 @@ async function recognizeWithRetry(
                 word: item.word,
                 pos: item.pos,
                 translation: item.translation ?? '',
+                phonetic: item.phonetic ?? '',
                 translationSource: item.translation ? 'search' : 'none',
                 sourceFile: uploadData.file?.filename,
                 batchId: uploadData.file?.batch_id,
@@ -307,6 +310,7 @@ async function recognizeWithRetry(
             word: w.word,
             pos: w.pos,
             translation: w.translation,
+            phonetic: w.phonetic,
             translation_source: w.translationSource,
             source_file: w.sourceFile,
             batchId: w.batchId,

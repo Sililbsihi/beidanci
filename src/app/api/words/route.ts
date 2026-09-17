@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
-import { probeWordsNewColumns } from '@/lib/word-app';
+import { probeWordsNewColumns, probeWordsPhonetic } from '@/lib/word-app';
 
 export const runtime = 'nodejs';
 
@@ -8,6 +8,7 @@ interface WordItem {
   word: string;
   pos?: string;
   translation?: string;
+  phonetic?: string;
   translation_source?: string;
   source_file?: string;
   batchId?: string;
@@ -84,12 +85,20 @@ export async function POST(request: NextRequest) {
 
     // 查重：词库中已存在的单词走"重复导入重新背诵"，其余为新词插入
     const wordList = [...normalized.keys()];
+    const hasPhonetic = await probeWordsPhonetic(client);
+    const existCols = [
+      'word',
+      ...(hasNewColumns ? ['id', 'recite_count', 'import_count'] : []),
+      ...(hasPhonetic ? ['phonetic'] : []),
+    ].join(', ');
     const { data: existing, error: existError } = await client
       .from('words')
-      .select(hasNewColumns ? 'id, word, recite_count, import_count' : 'word')
+      .select(existCols)
       .in('word', wordList);
     if (existError) throw new Error(`查重失败: ${existError.message}`);
-    const existingRows = (existing ?? []) as unknown as Array<ExistingRow & { id?: number; recite_count?: number; import_count?: number }>;
+    const existingRows = (existing ?? []) as unknown as Array<
+      ExistingRow & { id?: number; recite_count?: number; import_count?: number; phonetic?: string | null }
+    >;
     const existingMap = new Map(existingRows.map((row) => [row.word, row]));
 
     const toInsert = [...normalized.values()]
@@ -103,6 +112,7 @@ export async function POST(request: NextRequest) {
         batch_id: (item.batchId ?? body.batchId)?.slice(0, 36) ?? null,
         status: 'pending',
         ...(hasNewColumns ? { target_recite: 1, import_count: 1 } : {}),
+        ...(hasPhonetic ? { phonetic: item.phonetic?.slice(0, 60) || null } : {}),
       }));
 
     if (toInsert.length > 0) {
@@ -127,6 +137,7 @@ export async function POST(request: NextRequest) {
         if (item.source_file) patch.source_file = item.source_file.slice(0, 250);
         if (item.translation) patch.translation = item.translation.slice(0, 200);
         if (item.pos) patch.pos = item.pos.slice(0, 20);
+        if (hasPhonetic && item.phonetic && !row.phonetic) patch.phonetic = item.phonetic.slice(0, 60);
         const { error: updateError } = await client.from('words').update(patch).eq('id', row.id);
         if (updateError) throw new Error(`重复导入处理失败: ${updateError.message}`);
         reimported += 1;
