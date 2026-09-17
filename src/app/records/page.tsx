@@ -584,7 +584,7 @@ function BubblePool({ items, empty }: { items: Array<{ key: string; label: strin
   );
 }
 
-/** 支持作者弹层：展示收款码与微信二维码（图片为 public/support-alipay.jpg / support-wechat.jpg，站长可自行替换） */
+/** 支持作者弹层：展示支付宝/微信收款码（图片为 public/support-alipay.jpg / support-wechat.jpg，站长可自行替换） */
 function SupportModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
@@ -596,7 +596,7 @@ function SupportModal({ onClose }: { onClose: () => void }) {
           <Heart className="w-5 h-5 text-[#E57373] fill-[#E57373]" />
           支持作者
         </h3>
-        <p className="mt-1 text-xs text-on-surface-variant">如果这个背单词小站对你有帮助，欢迎请作者喝一杯奶茶，或扫码加微信交流</p>
+        <p className="mt-1 text-xs text-on-surface-variant">如果这个背单词小站对你有帮助，欢迎请作者喝一杯奶茶，随喜支持</p>
         <div className="mt-4 grid grid-cols-2 gap-3">
           <figure>
             <div className="rounded-xl overflow-hidden bg-surface-container/60">
@@ -608,9 +608,9 @@ function SupportModal({ onClose }: { onClose: () => void }) {
           <figure>
             <div className="rounded-xl overflow-hidden bg-surface-container/60">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/support-wechat.jpg" alt="微信二维码" className="w-full block" />
+              <img src="/support-wechat.jpg" alt="微信收款码" className="w-full block" />
             </div>
-            <figcaption className="mt-1.5 text-center text-xs text-on-surface-variant">微信 · 交流</figcaption>
+            <figcaption className="mt-1.5 text-center text-xs text-on-surface-variant">微信 · 赞赏</figcaption>
           </figure>
         </div>
         <p className="mt-3 text-center text-xs text-on-surface-variant">扫码支持作者 · 随喜即可</p>
