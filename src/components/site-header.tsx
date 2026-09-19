@@ -76,7 +76,7 @@ export function SiteHeader() {
             className="w-9 h-9 rounded-full bg-primary/15 text-primary flex items-center justify-center text-sm font-medium hover:ring-2 hover:ring-primary/30 transition-all"
             title={account ? account.displayName || account.username : '账号'}
           >
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : initial}
+            {loading && pathname !== '/login' ? <Loader2 className="w-4 h-4 animate-spin" /> : (account ? initial : <BookOpen className="w-4 h-4" />)}
           </button>
           {menuOpen && account && (
             <div className="absolute right-0 top-11 w-52 bg-surface rounded-xl shadow-float border border-outline-variant/60 py-2 z-50">

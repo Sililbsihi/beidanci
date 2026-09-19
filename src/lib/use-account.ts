@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { usePathname } from 'next/navigation';
 
 export interface AccountInfo {
   id: number;
@@ -16,12 +17,17 @@ export interface AccountState {
   refresh: () => Promise<void>;
 }
 
-/** 拉取当前登录账号信息；未登录（401）时自动跳转登录页 */
+/** 拉取当前登录账号信息；未登录（401）时自动跳转登录页。/login 页面内不请求也不跳转，避免 401 重定向循环 */
 export function useAccount(): AccountState {
+  const pathname = usePathname();
   const [account, setAccount] = useState<AccountInfo | null>(null);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
+    if (pathname === '/login') {
+      setLoading(false);
+      return;
+    }
     try {
       const res = await fetch('/api/auth/me', { cache: 'no-store' });
       if (res.status === 401) {
@@ -35,7 +41,7 @@ export function useAccount(): AccountState {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [pathname]);
 
   useEffect(() => {
     void refresh();
