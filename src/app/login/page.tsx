@@ -13,16 +13,19 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
+  const checkMode = async () => {
+    setMode('loading');
+    try {
+      const res = await fetch('/api/auth/login', { cache: 'no-store', signal: AbortSignal.timeout(8000) });
+      const data = (await res.json()) as { mode?: string };
+      setMode(data.mode === 'setup' ? 'setup' : data.mode === 'login' ? 'login' : 'unready');
+    } catch {
+      setMode('unready');
+    }
+  };
+
   useEffect(() => {
-    void (async () => {
-      try {
-        const res = await fetch('/api/auth/login', { cache: 'no-store' });
-        const data = (await res.json()) as { mode?: string };
-        setMode(data.mode === 'setup' ? 'setup' : data.mode === 'login' ? 'login' : 'unready');
-      } catch {
-        setMode('unready');
-      }
-    })();
+    void checkMode();
   }, []);
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
@@ -80,9 +83,18 @@ export default function LoginPage() {
         )}
 
         {mode === 'unready' && (
-          <div className="mt-8 flex items-start gap-2.5 bg-warning/10 text-warning rounded-xl px-4 py-3 text-sm">
-            <ShieldCheck className="w-4.5 h-4.5 shrink-0 mt-0.5" />
-            <span>账号系统初始化中：请站长在数据库执行初始化 SQL 后刷新本页。</span>
+          <div className="mt-8 space-y-3">
+            <div className="flex items-start gap-2.5 bg-warning/10 text-warning rounded-xl px-4 py-3 text-sm">
+              <ShieldCheck className="w-4.5 h-4.5 shrink-0 mt-0.5" />
+              <span>账号系统初始化中：请站长在数据库执行初始化 SQL 后刷新本页。若刚完成部署，可能是网络波动，点击下方按钮重试。</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => void checkMode()}
+              className="w-full py-2.5 rounded-xl bg-primary/10 text-primary text-sm font-medium hover:bg-primary/15 transition-colors"
+            >
+              重新检查
+            </button>
           </div>
         )}
 
