@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { SiteHeader } from '@/components/site-header';
 import { HeartbeatGate } from '@/components/heartbeat-gate';
+import { ClientErrorReporter } from '@/components/client-error-reporter';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -15,6 +16,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <body className="antialiased bg-background text-on-surface font-sans min-h-screen flex flex-col">
         <SiteHeader />
         <HeartbeatGate />
+<ClientErrorReporter />
         <main className="flex-1 w-full max-w-6xl mx-auto px-6 py-8">{children}</main>
       </body>
     </html>
