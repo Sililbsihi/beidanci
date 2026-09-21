@@ -2,7 +2,8 @@ import { createServer } from 'http';
 import { parse } from 'url';
 import next from 'next';
 
-const dev = process.env.COZE_PROJECT_ENV !== 'PROD';
+// 生产以 NODE_ENV 为准（部署脚本强制注入 production），避免生产误跑 dev 模式
+const dev = process.env.NODE_ENV !== 'production';
 const hostname = process.env.HOSTNAME || 'localhost';
 const port = parseInt(process.env.PORT || '5000', 10);
 
